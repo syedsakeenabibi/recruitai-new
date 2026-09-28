@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Candidate {
+  id              String   @id @default(cuid())
+  name            String
+  email           String?  @unique
+  phone           String?
+  location        String?
+  country         String?
+
+  currentTitle    String?
+  currentCompany  String?
+  industry        String?
+
+  experienceYears Float?
+  education       String?
+  degree          String?
+  specialization  String?
+
+  skills          String[]
+  previousRoles   Json?
+  summary         String?
+  resumeText      String?
+
+  // Candidate job preferences
+  preferredRoles     String[]
+  preferredLocations String[]
+  workPreference     String?
+  employmentType     String?
+
+  // Original CV / Resume
+  resumeFileName     String?
+  resumeFileUrl      String?
+  resumeMimeType     String?
+
+  expectedSalary  Float?
+  noticeDays      Int?
+  availability    String?
+
+  // Identifies real vs test candidates
+  source          String   @default("SYNTHETIC")
+  sourceProfileId String?
+  sourceUrl       String?
+
+  // Candidate consent
+  recruitmentConsent Boolean  @default(false)
+  consentedAt        DateTime?
+  privacyVersion     String?
+
+  outreaches      Outreach[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Job {
+  id              String   @id @default(cuid())
+
+  rawJd           String
+  title           String?
+  industry        String?
+  location        String?
+
+  minimumExperience Float?
+  requiredSkills  String[]
+  preferredSkills String[]
+
+  education       String?
+  extractedData   Json?
+
+  outreaches      Outreach[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Outreach {
+  id          String   @id @default(cuid())
+
+  jobId       String
+  candidateId String
+
+  subject     String?
+  body        String
+  status      String   @default("DRAFT")
+  sentAt      DateTime?
+
+  job         Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  responses   CandidateResponse[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CandidateResponse {
+  id             String   @id @default(cuid())
+
+  outreachId     String
+  message        String
+
+  classification String?
+  receivedAt     DateTime @default(now())
+
+  outreach       Outreach @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+}

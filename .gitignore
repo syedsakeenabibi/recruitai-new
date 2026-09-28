@@ -1,0 +1,28 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+client/node_modules/
+
+# Candidate CVs / private uploads
+private_uploads/
+uploads/
+
+# Frontend production build
+client/dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+# Local AI/editor folders
+.agents/
+.claude/
+.windsurf/
