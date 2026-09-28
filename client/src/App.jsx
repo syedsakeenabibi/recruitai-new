@@ -40,7 +40,7 @@ const [editingDraft, setEditingDraft] = useState(null);
     setSelected([]);
 
     try {
-      const response = await fetch("http://localhost:4000/api/match", {
+      const response = await fetch("https://recruitai-api-0s8o.onrender.com/api/match", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -90,7 +90,7 @@ async function generateOutreach() {
 
     for (const candidate of selectedCandidates) {
       const response = await fetch(
-        "http://localhost:4000/api/generate-outreach",
+        "https://recruitai-api-0s8o.onrender.com/api/generate-outreach",
         {
           method: "POST",
           headers: {
@@ -652,7 +652,7 @@ if (page === "jobs") {
   className="send-button"
   onClick={async () => {
     try {
-      const response = await fetch("http://localhost:4000/api/send-email", {
+      const response = await fetch("https://recruitai-api-0s8o.onrender.com/api/send-email", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
