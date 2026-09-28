@@ -15,7 +15,7 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
-const PORT = 4000;
+const PORT = process.env.PORT || 4000;
 // PRIVATE CV STORAGE - LOCAL DEVELOPMENT
 const uploadsDir = path.join(__dirname, "private_uploads", "resumes");
 
