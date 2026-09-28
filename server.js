@@ -9,33 +9,29 @@ const nodemailer = require("nodemailer");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
-
+const {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+} = require("@aws-sdk/client-s3");
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
 const PORT = process.env.PORT || 4000;
-// PRIVATE CV STORAGE - LOCAL DEVELOPMENT
-const uploadsDir = path.join(__dirname, "private_uploads", "resumes");
+// PRIVATE CV STORAGE - CLOUDFLARE R2
 
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-
-  filename: (req, file, cb) => {
-    const safeName = `${Date.now()}-${Math.round(
-      Math.random() * 1e9
-    )}${path.extname(file.originalname).toLowerCase()}`;
-
-    cb(null, safeName);
+const r2 = new S3Client({
+  region: "auto",
+  endpoint: process.env.R2_ENDPOINT,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
   },
 });
+
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
@@ -516,6 +512,7 @@ app.post(
   upload.single("resume"),
   async (req, res) => {
     let db;
+    let resumeKey = null;
 
     try {
       const {
@@ -545,16 +542,26 @@ if (
   recruitmentConsent !== "true"
 ) {
         // Remove uploaded file if registration fails
-        if (req.file?.path && fs.existsSync(req.file.path)) {
-          fs.unlinkSync(req.file.path);
-        }
-
+    
         return res.status(400).json({
          error:
-  "Name, email, country, current job title, resume and recruitment consent are required.",
+"Name, email, phone, resume and recruitment consent are required.",
         });
       }
+// Upload candidate CV to private Cloudflare R2
 
+const extension = path.extname(req.file.originalname).toLowerCase();
+resumeKey =
+  `resumes/${Date.now()}-${Math.round(Math.random() * 1e9)}${extension}`;
+
+await r2.send(
+  new PutObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME,
+    Key: resumeKey,
+    Body: req.file.buffer,
+    ContentType: req.file.mimetype,
+  })
+);
       const skillList = skills
         ? skills
             .split(",")
@@ -633,7 +640,7 @@ if (
           phone?.trim() || null,
           country.trim(),
           location?.trim() || null,
-          currentTitle.trim(),
+          currentTitle?.trim() || null,
           industry?.trim() || null,
           experienceYears ? Number(experienceYears) : null,
           skillList,
@@ -642,7 +649,8 @@ if (
           workPreference?.trim() || null,
           employmentType?.trim() || null,
           req.file.originalname,
-          req.file.path,
+          resumeKey,
+          
           req.file.mimetype,
         ]
       );
@@ -656,11 +664,18 @@ if (
       console.error("CANDIDATE REGISTRATION ERROR:", error);
 
       // Remove CV if database insertion fails
-      if (req.file?.path && fs.existsSync(req.file.path)) {
-        try {
-          fs.unlinkSync(req.file.path);
-        } catch {}
-      }
+     if (resumeKey) {
+  try {
+    await r2.send(
+      new DeleteObjectCommand({
+        Bucket: process.env.R2_BUCKET_NAME,
+        Key: resumeKey,
+      })
+    );
+  } catch (cleanupError) {
+    console.error("R2 CV CLEANUP ERROR:", cleanupError);
+  }
+}
 
       if (error.code === "23505") {
         return res.status(409).json({
@@ -683,8 +698,11 @@ if (
 // CONTACT / EMPLOYER ENQUIRY
 // CONTACT / EMPLOYER ENQUIRY
 
-app.post("/api/contact", async (req, res) => {
+app.post("/api/contact", 
+
+  async (req, res) => {
   let db;
+  let resumeKey = null;
 
   try {
     const {
@@ -795,7 +813,7 @@ app.post("/api/contact", async (req, res) => {
         name.trim(),
         company?.trim() || null,
         email.trim().toLowerCase(),
-        country.trim(),
+      country?.trim() || null,
         countryCode?.trim() || null,
         phone?.trim() || null,
         enquiryType.trim(),
