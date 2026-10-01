@@ -137,7 +137,7 @@ if (form.phone) {
       setSubmitting(true);
 
       const response = await fetch(
-        "https://recruitai-api-0s8o.onrender.com/api/candidates/register",
+        "/api/candidates/register",
         {
           method: "POST",
           body: formData,
