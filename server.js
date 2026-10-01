@@ -19,6 +19,17 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
+app.use((req, res, next) => {
+  console.log(
+    new Date().toISOString(),
+    req.method,
+    req.path,
+    "Origin:",
+    req.headers.origin || "no-origin"
+  );
+  next();
+});
+
 const PORT = process.env.PORT || 4000;
 // PRIVATE CV STORAGE - CLOUDFLARE R2
 
@@ -477,7 +488,7 @@ Return valid JSON only:
               matchReasons: candidate.matchReasons,
             },
           }),
-        },
+        },  
       ],
     });
 

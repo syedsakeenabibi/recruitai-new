@@ -242,7 +242,7 @@ if (page === "candidate") {
     />
   );
 }
-if (page === "jobs") {
+if (page === "jobs") {                                         
   return (
     <FindJobsPage
       onHome={() => setPage("home")}
@@ -257,6 +257,8 @@ onContact={() => setPage("contact")}
       onJoinTalent={() => setPage("candidate")}
     />
   );
+
+  
 }
 if (page === "services") {
   return (
@@ -322,21 +324,7 @@ if (page !== "recruiter") {
     </div>
   );
 }
-if (page === "jobs") {
-  return (
-    <FindJobsPage
-      onHome={() => setPage("home")}
-      onJobs={() => setPage("jobs")}
-      onCandidates={() => setPage("candidates")}
-      onEmployers={() => setPage("employers")}
-      onServices={() => setPage("services")}
-      onIndustries={() => setPage("industries")}
-      onAbout={() => setPage("about")}
-      onContact={() => setPage("contact")}
-      onJoinTalent={() => setPage("candidate")}
-    />
-  );
-}
+
 
   return (
     <div className="app">

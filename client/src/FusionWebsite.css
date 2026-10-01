@@ -9419,3 +9419,778 @@ button[type="submit"]:hover {
     animation: none !important;
   }
 }
+/* =========================================================
+   MOBILE NAVIGATION
+   ========================================================= */
+
+.sakevra-mobile-menu-button,
+.sakevra-mobile-upload {
+  display: none;
+}
+
+@media (max-width: 900px) {
+
+  .sakevra-header {
+    position: sticky;
+    top: 0;
+    z-index: 9999;
+  }
+
+  .sakevra-nav {
+    position: relative;
+    width: 100%;
+    height: 68px;
+    padding: 0 18px;
+    gap: 12px;
+  }
+
+  /* Logo */
+
+  .sakevra-brand {
+    flex-shrink: 0;
+  }
+
+  .sakevra-brand-mark {
+    width: 38px;
+    height: 38px;
+    font-size: 19px;
+  }
+
+  .sakevra-brand-text strong {
+    font-size: 14px;
+    letter-spacing: 1.5px;
+  }
+
+  .sakevra-brand-text small {
+    margin-top: 4px;
+    font-size: 7px;
+    letter-spacing: 2.5px;
+  }
+
+  /* Hide desktop Upload CV */
+
+  .sakevra-nav > .sakevra-nav-cta {
+    display: none;
+  }
+
+  /* Hamburger */
+
+  .sakevra-mobile-menu-button {
+    width: 44px;
+    height: 44px;
+    margin-left: auto;
+    padding: 10px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--sk-navy);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+
+  .sakevra-mobile-menu-button span {
+    display: block;
+    width: 20px;
+    height: 2px;
+    border-radius: 2px;
+    background: #ffffff;
+  }
+
+  /* Mobile dropdown */
+
+  .sakevra-links {
+    display: none;
+    position: absolute;
+    top: 68px;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-height: calc(100vh - 68px);
+    overflow-y: auto;
+    padding: 14px 18px 22px;
+    background: #ffffff;
+    border-top: 1px solid rgba(16, 24, 40, 0.08);
+    border-bottom: 1px solid rgba(16, 24, 40, 0.12);
+    box-shadow: 0 18px 35px rgba(16, 24, 40, 0.12);
+  }
+
+  .sakevra-links.sakevra-links-mobile-open {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  /* Navigation items */
+
+  .sakevra-nav-link-button {
+    width: 100%;
+    min-height: 48px;
+    padding: 12px 4px;
+    border: 0;
+    border-bottom: 1px solid #eeeeee;
+    background: transparent;
+    color: var(--sk-navy);
+    text-align: left;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  /* About */
+
+  .sakevra-about-menu {
+    width: 100%;
+  }
+
+  .sakevra-about-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+ .sakevra-about-dropdown {
+  position: static;
+  top: auto;
+  left: auto;
+  right: auto;
+  transform: none;
+
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 6px 0 6px 12px;
+
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: #f8fafc;
+
+  overflow: hidden;
+}
+
+.sakevra-about-dropdown button {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 12px 10px;
+
+  border: 0;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+  .sakevra-about-dropdown button {
+    width: 100%;
+    padding: 12px;
+    text-align: left;
+  }
+
+  /* Upload CV inside mobile menu */
+
+  .sakevra-mobile-upload {
+    width: 100%;
+    min-height: 48px;
+    margin-top: 16px;
+    padding: 0 18px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--sk-navy);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .sakevra-mobile-upload span {
+    color: var(--sk-coral);
+    font-size: 18px;
+  }
+}
+/* =========================================================
+   WHOLE WEBSITE SCROLL
+   ========================================================= */
+
+html {
+  width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  scroll-behavior: smooth;
+}
+
+body {
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  overflow-x: hidden;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+.sakevra-site {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* Visible whole-page scrollbar - Chrome / Edge */
+html::-webkit-scrollbar {
+  width: 12px;
+}
+
+html::-webkit-scrollbar-track {
+  background: #e5e7eb;
+}
+
+html::-webkit-scrollbar-thumb {
+  background: #101828;
+  border-radius: 10px;
+  border: 2px solid #e5e7eb;
+}
+
+html::-webkit-scrollbar-thumb:hover {
+  background: #344054;
+}
+
+/* Firefox */
+html {
+  scrollbar-width: auto;
+  scrollbar-color: #101828 #e5e7eb;
+}
+/* =========================================================
+   MOBILE HOMEPAGE RESPONSIVE FIX
+   ========================================================= */
+
+@media (max-width: 600px) {
+
+  /* General page spacing */
+  .sakevra-section-container {
+    width: calc(100% - 32px);
+  }
+
+  /* Hero */
+  .sakevra-hero-content {
+    width: calc(100% - 32px);
+    min-height: auto;
+    grid-template-columns: 1fr;
+    gap: 32px;
+    padding: 45px 0 50px;
+  }
+
+  .sakevra-hero h1 {
+    margin-top: 20px;
+    font-size: clamp(38px, 11vw, 52px);
+    line-height: 1.02;
+    letter-spacing: -2px;
+    overflow-wrap: normal;
+  }
+
+  .sakevra-hero-copy > p {
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  /* Hero buttons */
+  .sakevra-hero-actions {
+    width: 100%;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 25px;
+  }
+
+  .sakevra-primary,
+  .sakevra-secondary {
+    width: 100%;
+    min-height: 52px;
+    padding: 0 18px;
+    justify-content: space-between;
+  }
+
+  /* Hero image */
+  .sakevra-hero-visual {
+    width: 100%;
+  }
+
+  .sakevra-hero-image-wrap {
+    width: 100%;
+    height: 360px;
+  }
+
+  .sakevra-hero-image-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  /* Hide floating cards that crowd small phones */
+  .hero-floating-card,
+  .hero-accent-box {
+    display: none;
+  }
+
+  /* Section headings */
+  .sakevra-section-heading h2,
+  .about-content h2,
+  .talent-cta-inner h2 {
+    font-size: 32px;
+    line-height: 1.12;
+    letter-spacing: -1.3px;
+  }
+
+  /* Candidate / Employer cards */
+  .sakevra-paths {
+    padding: 55px 0;
+  }
+
+  .sakevra-paths .sakevra-section-container {
+    grid-template-columns: 1fr;
+  }
+
+  .sakevra-path-card {
+    min-height: auto;
+    padding: 35px 25px;
+  }
+
+  .candidate-path {
+    border-radius: 16px 16px 0 0;
+  }
+
+  .employer-path {
+    border-radius: 0 0 16px 16px;
+  }
+
+  .sakevra-path-card h2 {
+    font-size: 30px;
+  }
+
+  /* Prevent accidental horizontal overflow */
+  img,
+  video {
+    max-width: 100%;
+  }
+}
+/* =========================================================
+   FINAL MOBILE RESPONSIVE POLISH
+   ========================================================= */
+
+@media (max-width: 600px) {
+
+  /* ---------- GLOBAL ---------- */
+
+  html,
+  body,
+  #root,
+  .sakevra-site {
+    width: 100%;
+    max-width: 100%;
+    min-height: 100%;
+  }
+
+  body {
+    overflow-x: hidden;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  /* ---------- NAVBAR ---------- */
+
+  .sakevra-nav {
+    width: 100%;
+    height: 68px;
+    padding: 0 14px;
+  }
+
+  .sakevra-brand {
+    min-width: 0;
+  }
+
+  .sakevra-brand-mark {
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+  }
+
+  .sakevra-brand-text strong {
+    font-size: 13px;
+    letter-spacing: 1.2px;
+  }
+
+  .sakevra-brand-text small {
+    font-size: 6px;
+    letter-spacing: 2px;
+  }
+
+  .sakevra-mobile-menu-button {
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+  }
+
+  /* Mobile menu */
+  .sakevra-links {
+    left: 0;
+    right: 0;
+    width: 100%;
+    padding: 12px 16px 20px;
+  }
+
+  .sakevra-nav-link-button {
+    width: 100%;
+    min-height: 47px;
+    font-size: 14px;
+  }
+
+  /* About submenu - never move outside phone */
+  .sakevra-about-menu {
+    width: 100%;
+  }
+
+  .sakevra-about-dropdown {
+    position: static !important;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    transform: none !important;
+
+    width: 100% !important;
+    max-width: 100% !important;
+
+    margin: 0 !important;
+    padding: 5px 8px 5px 12px !important;
+
+    overflow: hidden;
+    box-shadow: none;
+  }
+
+  .sakevra-about-dropdown button {
+    width: 100%;
+    min-width: 0;
+    padding: 11px 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .sakevra-about-dropdown button strong {
+    font-size: 13px;
+  }
+
+  .sakevra-about-dropdown button span {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  /* ---------- HERO ---------- */
+
+  .sakevra-hero {
+    overflow: hidden;
+  }
+
+  .sakevra-hero-content {
+    width: calc(100% - 32px);
+    min-height: auto;
+    grid-template-columns: 1fr;
+    gap: 30px;
+    padding: 42px 0 48px;
+  }
+
+  .sakevra-kicker,
+  .section-eyebrow {
+    font-size: 9px;
+    letter-spacing: 1.4px;
+  }
+
+  .sakevra-hero h1 {
+    max-width: 100%;
+    margin: 18px 0;
+    font-size: clamp(38px, 11vw, 50px);
+    line-height: 1.03;
+    letter-spacing: -2px;
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+
+  .sakevra-hero-copy > p {
+    max-width: 100%;
+    font-size: 15px;
+    line-height: 1.65;
+  }
+
+  .sakevra-hero-actions {
+    width: 100%;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 24px;
+  }
+
+  .sakevra-primary,
+  .sakevra-secondary {
+    width: 100%;
+    min-height: 52px;
+    padding: 0 18px;
+    justify-content: space-between;
+  }
+
+  .sakevra-hero-note {
+    margin-top: 25px;
+  }
+
+  /* Hero image */
+  .sakevra-hero-visual {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .sakevra-hero-image-wrap {
+    width: 100%;
+    height: 340px;
+  }
+
+  .sakevra-hero-image-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .hero-floating-card,
+  .hero-accent-box,
+  .floating-profile {
+    display: none !important;
+  }
+
+  /* ---------- STANDARD CONTAINERS ---------- */
+
+  .sakevra-section-container {
+    width: calc(100% - 32px);
+  }
+
+  section {
+    max-width: 100%;
+  }
+
+  /* ---------- CANDIDATE / EMPLOYER CARDS ---------- */
+
+  .sakevra-paths {
+    padding: 50px 0;
+  }
+
+  .sakevra-paths .sakevra-section-container {
+    grid-template-columns: 1fr;
+  }
+
+  .sakevra-path-card {
+    width: 100%;
+    min-height: auto;
+    padding: 34px 24px;
+  }
+
+  .candidate-path {
+    border-radius: 16px 16px 0 0;
+  }
+
+  .employer-path {
+    border-radius: 0 0 16px 16px;
+  }
+
+  .sakevra-path-card h2 {
+    font-size: 29px;
+    line-height: 1.15;
+    letter-spacing: -1px;
+  }
+
+  .sakevra-path-card p {
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  /* ---------- ALL LARGE SECTION HEADINGS ---------- */
+
+  .sakevra-section-heading h2,
+  .about-content h2,
+  .talent-cta-inner h2,
+  .about-page-copy h1,
+  .about-story h2,
+  .recruitment-flow h2,
+  .about-ai-section h2,
+  .about-final-cta h2 {
+    max-width: 100%;
+    font-size: 31px;
+    line-height: 1.12;
+    letter-spacing: -1.2px;
+    overflow-wrap: normal;
+  }
+
+  /* ---------- ABOUT / CONTENT SECTIONS ---------- */
+
+  .about-story,
+  .about-ai-section {
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+
+  .about-page-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .about-page-copy,
+  .about-story,
+  .about-ai-section,
+  .recruitment-flow {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .about-page-image img {
+    width: 100%;
+    height: auto;
+    min-height: 300px;
+    object-fit: cover;
+  }
+
+  /* ---------- RECRUITMENT / CARDS ---------- */
+
+  .recruitment-flow-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .recruitment-flow-grid > div {
+    width: 100%;
+  }
+
+  /* ---------- DARK TALENT / NETWORK SECTIONS ---------- */
+
+  .network-snapshot-inner {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "copy"
+      "graph"
+      "activity" !important;
+
+    width: calc(100% - 32px);
+    gap: 30px !important;
+  }
+
+  .network-snapshot-copy {
+    width: 100%;
+  }
+
+  .network-snapshot-copy h2,
+  .network-snapshot-copy p {
+    max-width: 100%;
+  }
+
+  .network-snapshot-copy p {
+    color: #d0d5dd;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .fusion-live-visual {
+    width: 100%;
+    min-height: 300px !important;
+  }
+
+  .network-activity-panel {
+    width: 100%;
+    padding: 24px 18px;
+  }
+
+  /* ---------- FINAL TALENT CTA ---------- */
+
+  .talent-cta-inner {
+    width: calc(100% - 32px);
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .talent-cta-inner p {
+    max-width: 100%;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .talent-cta-inner button {
+    width: 100%;
+    min-height: 52px;
+  }
+
+  /* ---------- FOOTER ---------- */
+
+  .sakevra-footer-main {
+    grid-template-columns: 1fr !important;
+    gap: 32px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .footer-column {
+    width: 100%;
+  }
+
+  .footer-column button,
+  .footer-column a {
+    width: 100%;
+    text-align: left;
+  }
+
+  .sakevra-footer-bottom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  /* ---------- MEDIA ---------- */
+
+  img,
+  video,
+  iframe {
+    max-width: 100%;
+  }
+}
+
+
+/* EXTRA SMALL PHONES */
+@media (max-width: 380px) {
+
+  .sakevra-nav {
+    padding: 0 10px;
+  }
+
+  .sakevra-brand-text strong {
+    font-size: 12px;
+  }
+
+  .sakevra-brand-text small {
+    font-size: 5.5px;
+    letter-spacing: 1.5px;
+  }
+
+  .sakevra-hero-content,
+  .sakevra-section-container,
+  .network-snapshot-inner,
+  .talent-cta-inner {
+    width: calc(100% - 24px);
+  }
+
+  .sakevra-hero h1 {
+    font-size: 36px;
+    letter-spacing: -1.5px;
+  }
+
+  .sakevra-section-heading h2,
+  .about-content h2,
+  .talent-cta-inner h2 {
+    font-size: 28px;
+  }
+}

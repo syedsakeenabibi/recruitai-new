@@ -835,60 +835,95 @@ const services = [
       </main>
 
       {/* FOOTER */}
-      <footer className="sakevra-footer">
-        <div className="sakevra-footer-main">
-          <div>
-            <div className="footer-brand">
-             <span className="sakevra-brand-mark">F</span>
+    <footer className="sakevra-footer">
+  <div className="sakevra-footer-main">
 
-              <div>
-               <strong>FUSION</strong>
-<small>STAFFING SOLUTIONS</small>
-              </div>
-            </div>
-            <p>
-              Connecting skilled professionals and organisations
-              across the US and UK.
-            </p>
-          </div>
+    {/* BRAND */}
+    <div>
+      <div className="footer-brand">
+        <span className="sakevra-brand-mark">F</span>
 
-          <div className="footer-column">
-            <strong>Candidates</strong>
-            <a href="#candidates">Join Talent Community</a>
-            <button onClick={onJoinTalent}>Upload CV</button>
-            <a href="#industries">Industries</a>
-          </div>
-
-          <div className="footer-column">
-            <strong>Employers</strong>
-            <a href="#employers">Hire Talent</a>
-            <a href="#services">Services</a>
-            <a href="#contact">Contact</a>
-          </div>
-
-          <div className="footer-column">
-            <strong>Company</strong>
-            <a href="#about"> About Fusion</a>
-            <a href="#contact">Contact</a>
-            <span>Privacy Notice</span>
-          </div>
+        <div>
+          <strong>FUSION</strong>
+          <small>STAFFING SOLUTIONS</small>
         </div>
+      </div>
 
-       <div className="sakevra-footer-bottom">
-  <span>
-    © Fusion Staffing Solutions. All Rights Reserved.
-  </span>
-          <span>
-            US <i /> UK
-          </span>
-
-          {onOpenRecruitAI && (
-            <button onClick={onOpenRecruitAI}>
-              Recruiter Access
-            </button>
-          )}
-        </div>
-      </footer>
+      <p>
+        Connecting skilled professionals and organisations
+        across the US and UK.
+      </p>
     </div>
+
+    {/* CANDIDATES */}
+    <div className="footer-column">
+      <strong>Candidates</strong>
+
+      <button type="button" onClick={onJobs}>
+        Find Jobs
+      </button>
+
+      <button type="button" onClick={onCandidates}>
+        Candidates
+      </button>
+
+      <button type="button" onClick={onJoinTalent}>
+        Upload CV
+      </button>
+    </div>
+
+    {/* EMPLOYERS */}
+    <div className="footer-column">
+      <strong>Employers</strong>
+
+      <button type="button" onClick={onEmployers}>
+        Employers
+      </button>
+
+      <button type="button" onClick={onServices}>
+        Recruitment Services
+      </button>
+
+      <button type="button" onClick={onIndustries}>
+        Industries
+      </button>
+    </div>
+
+    {/* COMPANY */}
+    <div className="footer-column">
+      <strong>Company</strong>
+
+      <button type="button" onClick={onAbout}>
+        About Fusion
+      </button>
+
+      <button type="button" onClick={onContact}>
+        Contact
+      </button>
+
+      <button type="button" onClick={onTerms}>
+        Terms & Conditions
+      </button>
+    </div>
+
+  </div>
+
+  <div className="sakevra-footer-bottom">
+    <span>
+      © Fusion Staffing Solutions. All Rights Reserved.
+    </span>
+
+    <span>
+      US <i /> UK
+    </span>
+
+    {onOpenRecruitAI && (
+      <button type="button" onClick={onOpenRecruitAI}>
+        Recruiter Access
+      </button>
+    )}
+  </div>
+</footer>
+ </div>
   );
 }

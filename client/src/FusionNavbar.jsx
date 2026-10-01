@@ -14,15 +14,30 @@ export default function FusionNavbar({
   onJoinTalent,
 }) {
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  function closeMobileMenu() {
+    setMobileMenuOpen(false);
+    setAboutOpen(false);
+  }
+
+  function navigate(action) {
+    closeMobileMenu();
+
+    if (typeof action === "function") {
+      action();
+    }
+  }
 
   return (
     <header className="sakevra-header">
       <div className="sakevra-nav">
 
+        {/* LOGO */}
         <button
           type="button"
           className="sakevra-brand page-brand-button"
-          onClick={onHome}
+          onClick={() => navigate(onHome)}
         >
           <span className="sakevra-brand-mark">F</span>
 
@@ -32,12 +47,29 @@ export default function FusionNavbar({
           </span>
         </button>
 
-        <nav className="sakevra-links">
+        {/* MOBILE MENU BUTTON */}
+        <button
+          type="button"
+          className="sakevra-mobile-menu-button"
+          aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+          aria-expanded={mobileMenuOpen}
+          onClick={() => setMobileMenuOpen((open) => !open)}
+        >
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
 
+        {/* NAVIGATION */}
+        <nav
+          className={`sakevra-links ${
+            mobileMenuOpen ? "sakevra-links-mobile-open" : ""
+          }`}
+        >
           <button
             type="button"
             className="sakevra-nav-link-button"
-            onClick={onHome}
+            onClick={() => navigate(onHome)}
           >
             Home
           </button>
@@ -45,7 +77,7 @@ export default function FusionNavbar({
           <button
             type="button"
             className="sakevra-nav-link-button"
-            onClick={onJobs}
+            onClick={() => navigate(onJobs)}
           >
             Find Jobs
           </button>
@@ -53,7 +85,7 @@ export default function FusionNavbar({
           <button
             type="button"
             className="sakevra-nav-link-button"
-            onClick={onCandidates}
+            onClick={() => navigate(onCandidates)}
           >
             Candidates
           </button>
@@ -61,7 +93,7 @@ export default function FusionNavbar({
           <button
             type="button"
             className="sakevra-nav-link-button"
-            onClick={onEmployers}
+            onClick={() => navigate(onEmployers)}
           >
             Employers
           </button>
@@ -69,7 +101,7 @@ export default function FusionNavbar({
           <button
             type="button"
             className="sakevra-nav-link-button"
-            onClick={onServices}
+            onClick={() => navigate(onServices)}
           >
             Services
           </button>
@@ -77,15 +109,13 @@ export default function FusionNavbar({
           <button
             type="button"
             className="sakevra-nav-link-button"
-            onClick={onIndustries}
+            onClick={() => navigate(onIndustries)}
           >
             Industries
           </button>
 
-
-          {/* ABOUT DROPDOWN */}
+          {/* ABOUT */}
           <div className="sakevra-about-menu">
-
             <button
               type="button"
               className="sakevra-nav-link-button sakevra-about-trigger"
@@ -97,13 +127,9 @@ export default function FusionNavbar({
 
             {aboutOpen && (
               <div className="sakevra-about-dropdown">
-
                 <button
                   type="button"
-                  onClick={() => {
-                    setAboutOpen(false);
-                    onAbout();
-                  }}
+                  onClick={() => navigate(onAbout)}
                 >
                   <strong>About Us</strong>
                   <span>Who we are and how we recruit</span>
@@ -111,35 +137,38 @@ export default function FusionNavbar({
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setAboutOpen(false);
-                    onTerms();
-                  }}
+                  onClick={() => navigate(onTerms)}
                 >
                   <strong>Terms & Conditions</strong>
                   <span>Website and recruitment terms</span>
                 </button>
-
               </div>
             )}
-
           </div>
-
 
           <button
             type="button"
             className="sakevra-nav-link-button"
-            onClick={onContact}
+            onClick={() => navigate(onContact)}
           >
             Contact
           </button>
 
+          {/* MOBILE UPLOAD CV */}
+          <button
+            type="button"
+            className="sakevra-mobile-upload"
+            onClick={() => navigate(onJoinTalent)}
+          >
+            Upload CV <span>↗</span>
+          </button>
         </nav>
 
+        {/* DESKTOP UPLOAD CV */}
         <button
           type="button"
           className="sakevra-nav-cta"
-          onClick={onJoinTalent}
+          onClick={() => navigate(onJoinTalent)}
         >
           Upload CV
           <span>↗</span>
