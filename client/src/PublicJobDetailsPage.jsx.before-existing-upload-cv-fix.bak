@@ -1,0 +1,86 @@
+﻿import { useEffect, useState } from "react";
+import PublicJobApplyForm from "./PublicJobApplyForm";
+
+export default function PublicJobDetailsPage({ onJobs, onJoinTalent }) {
+  const id = decodeURIComponent(window.location.pathname.split("/")[2] || "");
+  const [job, setJob] = useState(null);
+  const [showApply, setShowApply] = useState(() => window.location.hash === "#apply");
+  useEffect(() => {
+    if (showApply && job) {
+      document.getElementById("job-application")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    }
+  }, [showApply, job]);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/public-jobs/${encodeURIComponent(id)}`)
+      .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Job not found.");
+        return data;
+      })
+      .then(data => { if (active) setJob(data.job || null); })
+      .catch(err => { if (active) setError(err.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [id]);
+
+  const card = {
+    background: "#fff", border: "1px solid #e2e8f0",
+    borderRadius: 18, padding: 28, marginTop: 24
+  };
+
+  const button = {
+    background: "#173d68", color: "#fff", border: 0,
+    padding: "13px 22px", borderRadius: 9, cursor: "pointer"
+  };
+
+  return (
+    <main style={{ background: "#f5f8fc", minHeight: "100vh", padding: "50px 20px" }}>
+      <div style={{ maxWidth: 950, margin: "auto" }}>
+        <button onClick={onJobs} style={button}>Back to All Jobs</button>
+        {loading && <p>Loading job details...</p>}
+        {error && <p role="alert">{error}</p>}
+        {!loading && !error && !job && <p>Job not found or no longer published.</p>}
+        {job && (
+          <>
+            <section style={card}>
+              <p style={{ color: "#2563eb", fontWeight: 700 }}>{job.category}</p>
+              <h1 style={{ fontSize: "clamp(30px, 5vw, 46px)", marginBottom: 10 }}>{job.title}</h1>
+              <p>{job.companyName} · {job.location}{job.country ? `, ${job.country}` : ""}</p>
+              <p>{[job.employmentType, job.workplaceType, job.salary].filter(Boolean).join(" | ")}</p>
+              <button style={button} onClick={() => { setShowApply(true); window.history.replaceState(null, "", "#apply"); }}>Apply Now — Upload CV</button>
+            </section>
+            {[
+              ["Job Description", job.description],
+              ["Responsibilities", job.responsibilities],
+              ["Requirements & Qualifications", job.requirements],
+              ["Benefits", job.benefits]
+            ].filter(([, value]) => value).map(([heading, value]) => (
+              <section key={heading} style={card}>
+                <h2>{heading}</h2>
+                <p style={{ whiteSpace: "pre-line", lineHeight: 1.8 }}>{value}</p>
+              </section>
+            ))}
+            {showApply && (
+              <section id="job-application" style={card}>
+                <PublicJobApplyForm job={job} />
+              </section>
+            )}
+            <section style={card}>
+              <h2>Interested in this opportunity?</h2>
+              <p>Apply with your updated CV. Our recruitment team will review your profile and contact shortlisted candidates regarding the next steps.</p>
+              <button style={button} onClick={() => { setShowApply(true); window.history.replaceState(null, "", "#apply"); }}>Apply Now</button>
+            </section>
+          </>
+        )}
+      </div>
+    </main>
+  );
+}

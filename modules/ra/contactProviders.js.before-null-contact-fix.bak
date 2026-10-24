@@ -1,0 +1,139 @@
+"use strict";
+
+const BUSINESS_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PERSONAL_DOMAINS = new Set([
+  "gmail.com", "yahoo.com", "hotmail.com",
+  "outlook.com", "icloud.com", "proton.me"
+]);
+
+function normalizeContact(input, sourceProvider) {
+  if (!input || typeof input !== "object") return null;
+
+  const email = String(input.email || "").trim().toLowerCase();
+  const domain = email.split("@")[1];
+
+  if (!BUSINESS_EMAIL.test(email) || PERSONAL_DOMAINS.has(domain)) {
+    return null;
+  }
+
+  return {
+    contactName: String(input.contactName || "").trim() || null,
+    contactTitle: String(input.contactTitle || "").trim() || null,
+    contactType: "EMPLOYER_CONTACT",
+    email,
+    phone: input.phone || null,
+    professionalProfileUrl: input.professionalProfileUrl || null,
+    sourceProvider,
+    verificationStatus: input.verificationStatus === "valid" ? "VERIFIED" : "UNVERIFIED",
+    checkedAt: new Date().toISOString()
+  };
+}
+
+async function discoverEmployerContacts({ companyName, jobTitle, location, companyDomain }) {
+  if (!companyName || !jobTitle) return [];
+
+  const apiKey = process.env.HUNTER_API_KEY;
+if (!apiKey) return [];
+
+  const domain = String(companyDomain || "").trim().toLowerCase();
+
+ if (companyDomain && !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) {
+  return [];
+}
+
+  const url = new URL("https://api.hunter.io/v2/domain-search");
+if (companyDomain) {
+  url.searchParams.set("domain", domain);
+} else {
+  url.searchParams.set("company", companyName);
+}  
+  url.searchParams.set("limit", "10");
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      const details = await response.json().catch(() => ({})); const reason = details.errors?.map(e => e.details || e.id).join(", ") || details.message || "No error details provided"; throw new Error(`Hunter HTTP ${response.status}: ${reason}`);
+    }
+
+    const payload = await response.json();
+    const emails = Array.isArray(payload?.data?.emails)
+      ? payload.data.emails
+      : [];
+
+    return emails
+      .filter(item => {
+        const title = String(item.position || "").toLowerCase();
+        const department = String(item.department || "").toLowerCase();
+        const job = String(jobTitle || "").toLowerCase();
+        const hiring = /recruit|talent|hiring|human resources|people operations|staffing|hr\b/.test(title + " " + department);
+        const tech = /software|engineer|developer|data|cloud|devops|security|technical|it\b/.test(job);
+        const finance = /finance|account|payroll|banking|payment/.test(job);
+        const operations = /warehouse|construction|labor|logistics|operations|manufactur|production/.test(job);
+        const relevant = (tech && /engineering|technology|software|it\b|technical/.test(title + " " + department))
+          || (finance && /finance|accounting|financial/.test(title + " " + department))
+          || (operations && /operations|construction|logistics|production|manufactur/.test(title + " " + department));
+        return hiring || relevant || /manager|director|head|vice president|vp\b|chief|supervisor|lead\b/i.test(title);
+      })
+      .sort((a, b) => {
+        const hiringPriority = item => {
+          const title = String(item.position || "").toLowerCase();
+          const dept = String(item.department || "").toLowerCase();
+          const combined = title + " " + dept;
+          const job = String(jobTitle || "").toLowerCase();
+          const recruiter = /talent acquisition|recruit|staffing|hiring|human resources|people operations|people partner|hr\b/.test(combined);
+          const tech = /software|engineer|developer|data|cloud|devops|security|technical|it\b/.test(job);
+          const finance = /finance|account|payroll|banking|payment/.test(job);
+          const operations = /warehouse|construction|labor|logistics|operations|manufactur|production/.test(job);
+          const relevant = (tech && /engineering|technology|software|technical|it\b/.test(combined))
+            || (finance && /finance|accounting|financial/.test(combined))
+            || (operations && /operations|construction|logistics|production|manufactur/.test(combined));
+          const management = /manager|director|head|vice president|vp\b|chief|supervisor|lead\b/.test(title);
+          const tier = recruiter ? 3 : relevant ? 2 : management ? 1 : 0;
+          return tier * 100
+            + (management ? 10 : 0)
+            + (item.first_name && item.last_name ? 2 : 0)
+            + (item.verification?.status === "valid" ? 1 : 0);
+        };
+        return hiringPriority(b) - hiringPriority(a);
+      })      .map(item => {
+        const title = String(item.position || "").toLowerCase();
+        const dept = String(item.department || "").toLowerCase();
+        const combined = title + " " + dept;
+        const job = String(jobTitle || "").toLowerCase();
+        const recruiter = /talent acquisition|recruit|staffing|hiring|human resources|people operations|people partner|hr\b/.test(combined);
+        const tech = /software|engineer|developer|data|cloud|devops|security|technical|it\b/.test(job);
+        const finance = /finance|account|payroll|banking|payment/.test(job);
+        const operations = /warehouse|construction|labor|logistics|operations|manufactur|production/.test(job);
+        const relevant = (tech && /engineering|technology|software|technical|it\b/.test(combined))
+          || (finance && /finance|accounting|financial/.test(combined))
+          || (operations && /operations|construction|logistics|production|manufactur/.test(combined));
+        return {
+          ...normalizeContact({
+        contactName: [item.first_name, item.last_name].filter(Boolean).join(" "),
+        contactTitle: item.position,
+        email: item.value,
+        phone: item.phone_number || null,
+        verificationStatus: item.verification?.status || "unknown"
+          }, "HUNTER"),
+          contactPriority: recruiter ? 1 : relevant ? 2 : 3,
+          contactPriorityLabel: recruiter ? "Recruiter / Talent Acquisition / HR" : relevant ? "Relevant Department Contact" : "Other Management Contact"
+        };
+      })
+      .filter(Boolean);
+
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+module.exports = {
+  normalizeContact,
+  discoverEmployerContacts
+};

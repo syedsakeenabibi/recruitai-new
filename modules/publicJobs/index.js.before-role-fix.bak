@@ -1,0 +1,162 @@
+﻿const express = require("express");
+const { randomUUID } = require("crypto");
+
+function createPublicJobsRouter({ getDb, requireAdmin, requireRole }) {
+  const router = express.Router();
+  const adminOnly = [requireAdmin, requireRole("ADMIN")];
+
+  const fields = [
+    "title", "companyName", "category", "industry",
+    "country", "location", "employmentType", "workplaceType",
+    "salary", "description", "responsibilities",
+    "requirements", "benefits"
+  ];
+
+  function cleanJob(body) {
+    const job = {};
+    for (const field of fields) {
+      const value = body?.[field];
+      job[field] = typeof value === "string" ? value.trim().slice(0, 20000) : "";
+    }
+    job.companyName ||= "Fusion Staffing Solutions";
+    return job;
+  }
+
+  function validate(job) {
+    if (!job.title || !job.location || !job.description || !job.category) {
+      return "Job title, location, description and category are required.";
+    }
+    return null;
+  }
+
+  async function query(sql, params = []) {
+    const db = await getDb();
+    try {
+      return await db.query(sql, params);
+    } finally {
+      await db.end().catch(() => {});
+    }
+  }
+
+  router.get("/", async (_req, res) => {
+    try {
+      const result = await query(
+        'SELECT * FROM "PublicJob" WHERE "status" = $1 ORDER BY "publishedAt" DESC, "createdAt" DESC',
+        ["PUBLISHED"]
+      );
+      res.set("Cache-Control", "no-store");
+      res.json({ success: true, jobs: result.rows });
+    } catch (error) {
+      console.error("PUBLIC JOBS LIST ERROR:", error);
+      res.status(500).json({ error: "Unable to load vacancies." });
+    }
+  });
+
+  router.get("/manage", adminOnly, async (_req, res) => {
+    try {
+      const result = await query('SELECT * FROM "PublicJob" ORDER BY "createdAt" DESC');
+      res.set("Cache-Control", "no-store");
+      res.json({ success: true, jobs: result.rows });
+    } catch (error) {
+      console.error("ADMIN JOBS LIST ERROR:", error);
+      res.status(500).json({ error: "Unable to load managed jobs." });
+    }
+  });
+
+  router.get("/:id", async (req, res) => {
+    try {
+      const result = await query(
+        'SELECT * FROM "PublicJob" WHERE "id" = $1 AND "status" = $2',
+        [req.params.id, "PUBLISHED"]
+      );
+      res.set("Cache-Control", "no-store");
+      if (!result.rows.length) return res.status(404).json({ error: "Job not found." });
+      res.json({ success: true, job: result.rows[0] });
+    } catch (error) {
+      console.error("PUBLIC JOB DETAIL ERROR:", error);
+      res.status(500).json({ error: "Unable to load job." });
+    }
+  });
+
+  router.post("/", adminOnly, async (req, res) => {
+    const job = cleanJob(req.body);
+    const error = validate(job);
+    if (error) return res.status(400).json({ error });
+
+    const id = randomUUID();
+    try {
+      const values = fields.map((field) => job[field] || null);
+      const columns = ['"id"', ...fields.map((field) => `"${field}"`)].join(", ");
+      const placeholders = values.map((_, i) => `$${i + 2}`).join(", ");
+      const result = await query(
+        `INSERT INTO "PublicJob" (${columns}) VALUES ($1, ${placeholders}) RETURNING *`,
+        [id, ...values]
+      );
+      res.status(201).json({ success: true, job: result.rows[0] });
+    } catch (error) {
+      console.error("CREATE PUBLIC JOB ERROR:", error);
+      res.status(500).json({ error: "Unable to create job." });
+    }
+  });
+
+  router.put("/:id", adminOnly, async (req, res) => {
+    const job = cleanJob(req.body);
+    const error = validate(job);
+    if (error) return res.status(400).json({ error });
+
+    try {
+      const values = fields.map((field) => job[field] || null);
+      const assignments = fields.map((field, i) => `"${field}" = $${i + 1}`).join(", ");
+      const result = await query(
+        `UPDATE "PublicJob" SET ${assignments}, "updatedAt" = NOW() WHERE "id" = $${fields.length + 1} RETURNING *`,
+        [...values, req.params.id]
+      );
+      if (!result.rows.length) return res.status(404).json({ error: "Job not found." });
+      res.json({ success: true, job: result.rows[0] });
+    } catch (error) {
+      console.error("UPDATE PUBLIC JOB ERROR:", error);
+      res.status(500).json({ error: "Unable to update job." });
+    }
+  });
+
+  router.patch("/:id/status", adminOnly, async (req, res) => {
+    const status = req.body?.status;
+    if (!["DRAFT", "PUBLISHED", "CLOSED"].includes(status)) {
+      return res.status(400).json({ error: "Invalid job status." });
+    }
+
+    try {
+      const result = await query(
+        `UPDATE "PublicJob"
+         SET "status" = $1,
+             "publishedAt" = CASE WHEN $1 = 'PUBLISHED' THEN COALESCE("publishedAt", NOW()) ELSE "publishedAt" END,
+             "updatedAt" = NOW()
+         WHERE "id" = $2 RETURNING *`,
+        [status, req.params.id]
+      );
+      if (!result.rows.length) return res.status(404).json({ error: "Job not found." });
+      res.json({ success: true, job: result.rows[0] });
+    } catch (error) {
+      console.error("PUBLIC JOB STATUS ERROR:", error);
+      res.status(500).json({ error: "Unable to change job status." });
+    }
+  });
+
+  router.delete("/:id", adminOnly, async (req, res) => {
+    try {
+      const result = await query(
+        'DELETE FROM "PublicJob" WHERE "id" = $1 RETURNING "id"',
+        [req.params.id]
+      );
+      if (!result.rows.length) return res.status(404).json({ error: "Job not found." });
+      res.json({ success: true, deletedId: req.params.id });
+    } catch (error) {
+      console.error("DELETE PUBLIC JOB ERROR:", error);
+      res.status(500).json({ error: "Unable to delete job." });
+    }
+  });
+
+  return router;
+}
+
+module.exports = { createPublicJobsRouter };

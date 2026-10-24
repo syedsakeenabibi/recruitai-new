@@ -1,0 +1,1045 @@
+import { useEffect, useMemo, useState } from "react";
+import BdmModule from "./bdm/BdmModule";
+import RaModule from "./ra/RaModule";
+import RecruitmentWorkspace from "./recruitment/RecruitmentWorkspace";
+import "./RecruiterDashboard.css";
+
+
+
+function Icon({ children }) {
+  return <span className="rd-icon">{children}</span>;
+}
+
+export default function RecruiterDashboard({
+  onLogout,
+  adminUser = null,
+  initialSection = "dashboard",
+  onSectionChange,
+  authError = "",
+}) {
+  const role = String(adminUser?.role || "").toUpperCase();
+  const canUseRecruiterWorkspace = ["ADMIN", "RECRUITER"].includes(role);
+  const canUseBdm = ["ADMIN", "BDM"].includes(role);
+  const canUseRa = ["ADMIN", "RA"].includes(role);
+  const [section, setSectionValue] = useState(initialSection);
+  const [recruitmentPage, setRecruitmentPage] = useState("assigned-jobs");
+  const [search, setSearch] = useState("");
+  const [showUpload, setShowUpload] = useState(false);
+  const [allCandidates, setAllCandidates] = useState([]);
+  const [loadingCandidates, setLoadingCandidates] = useState(canUseRecruiterWorkspace);
+const [enquiries, setEnquiries] = useState([]);
+  const [loadingEnquiries, setLoadingEnquiries] = useState(canUseRecruiterWorkspace);
+
+const loadCandidates = async () => {
+  try {
+    const response = await fetch("/api/admin/candidates", {
+      credentials: "include",
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Unable to load candidates.");
+    }
+
+    return data.candidates || [];
+  } catch (error) {
+    console.error("LOAD CANDIDATES ERROR:", error);
+    return [];
+  }
+};
+const loadEnquiries = async () => {
+  try {
+    const response = await fetch("/api/admin/enquiries", {
+      credentials: "include",
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || "Unable to load employer enquiries."
+      );
+    }
+
+    return data.enquiries || [];
+  } catch (error) {
+    console.error("LOAD ENQUIRIES ERROR:", error);
+    return [];
+  }
+};
+
+useEffect(() => {
+  if (!canUseRecruiterWorkspace) return undefined;
+
+  let active = true;
+  loadCandidates().then((candidates) => {
+    if (active) setAllCandidates(candidates);
+  }).finally(() => {
+    if (active) setLoadingCandidates(false);
+  });
+  loadEnquiries().then((items) => {
+    if (active) setEnquiries(items);
+  }).finally(() => {
+    if (active) setLoadingEnquiries(false);
+  });
+
+  return () => {
+    active = false;
+  };
+}, [canUseRecruiterWorkspace]);
+
+function setSection(nextSection) {
+  setSectionValue(nextSection);
+  onSectionChange?.(nextSection);
+}
+
+
+const candidates = useMemo(() => {
+  const q = search.toLowerCase().trim();
+
+  if (!q) return allCandidates;
+
+  return allCandidates.filter((candidate) => {
+    const searchableValues = [
+      candidate.name,
+      candidate.email,
+      candidate.phone,
+      candidate.location,
+      candidate.country,
+      candidate.currentTitle,
+      candidate.currentCompany,
+      candidate.industry,
+      candidate.experienceYears,
+      candidate.resumeFileName,
+      candidate.source,
+      ...(candidate.skills || []),
+      ...(candidate.preferredRoles || []),
+      ...(candidate.preferredLocations || []),
+    ];
+
+    return searchableValues.some((value) =>
+      String(value ?? "").toLowerCase().includes(q)
+    );
+  });
+}, [search, allCandidates]);
+const cvsToday = allCandidates.filter((candidate) => {
+  if (!candidate.createdAt) return false;
+
+  const created = new Date(candidate.createdAt);
+  const today = new Date();
+
+  return (
+    created.getFullYear() === today.getFullYear() &&
+    created.getMonth() === today.getMonth() &&
+    created.getDate() === today.getDate()
+  );
+}).length;
+const manualUploads = allCandidates.filter(
+  (candidate) => candidate.source === "MANUAL_UPLOAD"
+).length;
+const websiteCandidates = allCandidates.filter(
+  (candidate) => candidate.source === "TALENT_NETWORK"
+).length;
+
+const otherCandidates = allCandidates.filter(
+  (candidate) =>
+    candidate.source !== "TALENT_NETWORK" &&
+    candidate.source !== "MANUAL_UPLOAD"
+).length;
+
+const sourcePercent = (count) => {
+  if (!allCandidates.length) return "0%";
+  return `${Math.round((count / allCandidates.length) * 100)}%`;
+};
+const newEnquiries = enquiries.filter(
+  (enquiry) => enquiry.status === "NEW"
+).length;
+
+  return (
+    <div className="rd-app">
+      <aside className="rd-sidebar">
+        <div className="rd-brand">
+          <div className="rd-brand-mark">F</div>
+
+          <div>
+            <strong>FUSION</strong>
+            <span>STAFFING</span>
+          </div>
+        </div>
+
+        <div className="rd-portal-label">RECRUITER PORTAL</div>
+
+        <nav className="rd-nav">
+          <button
+            className={section === "dashboard" ? "active" : ""}
+            onClick={() => setSection("dashboard")}
+          >
+            <Icon>⌂</Icon>
+            Dashboard
+          </button>
+
+          {canUseRecruiterWorkspace && (
+            <>
+          <button
+            className={section === "candidates" ? "active" : ""}
+            onClick={() => setSection("candidates")}
+          >
+            <Icon>♙</Icon>
+            Candidates
+           <span className="rd-nav-count">
+  {loadingCandidates ? "..." : allCandidates.length}
+</span>
+          </button>
+
+          <button onClick={() => setShowUpload(true)}>
+            <Icon>＋</Icon>
+            Add Candidate
+          </button>
+
+          <button
+            className={section === "enquiries" ? "active" : ""}
+            onClick={() => setSection("enquiries")}
+          >
+            <Icon>▣</Icon>
+            Employer Enquiries
+          {newEnquiries > 0 && (
+  <span className="rd-nav-count">{newEnquiries}</span>
+)}
+          </button>
+            </>
+          )}
+
+{canUseBdm && (
+<button
+  className={section === "bdm" ? "active" : ""}
+  onClick={() => setSection("bdm")}
+>
+  <Icon>BD</Icon>
+  Business Development
+</button>
+)}
+
+{canUseRa && (
+<button
+  className={section === "ra" ? "active" : ""}
+  onClick={() => setSection("ra")}
+>
+  <Icon>RA</Icon>
+  Research / RA
+</button>
+)}
+
+{canUseRecruiterWorkspace && (
+<>
+<button className={section === "recruitment" && recruitmentPage === "assigned-jobs" ? "active" : ""} onClick={() => { setRecruitmentPage("assigned-jobs"); setSection("recruitment"); }}>
+            <Icon>▤</Icon>
+            Assigned Jobs
+          </button>
+
+          <button className={section === "recruitment" && recruitmentPage === "matching" ? "active" : ""} onClick={() => { setRecruitmentPage("matching"); setSection("recruitment"); }}>
+            <Icon>⌕</Icon>
+            Candidate Matching
+          </button>
+
+          <button className={section === "recruitment" && recruitmentPage === "shortlists" ? "active" : ""} onClick={() => { setRecruitmentPage("shortlists"); setSection("recruitment"); }}>
+            <Icon>✓</Icon>
+            Shortlists
+          </button>
+
+          <button className={section === "recruitment" && recruitmentPage === "submissions" ? "active" : ""} onClick={() => { setRecruitmentPage("submissions"); setSection("recruitment"); }}>
+            <Icon>⇧</Icon>
+            Submissions
+          </button>
+
+          <button className={section === "recruitment" && recruitmentPage === "interviews" ? "active" : ""} onClick={() => { setRecruitmentPage("interviews"); setSection("recruitment"); }}>
+            <Icon>□</Icon>
+            Interviews
+          </button>
+          <button className={section === "recruitment" && recruitmentPage === "placements" ? "active" : ""} onClick={() => { setRecruitmentPage("placements"); setSection("recruitment"); }}>
+            <Icon>$</Icon>
+            Offers / Placements
+          </button>
+          <button className={section === "recruitment" && recruitmentPage === "reports" ? "active" : ""} onClick={() => { setRecruitmentPage("reports"); setSection("recruitment"); }}>
+            <Icon>▥</Icon>
+            Reports
+          </button>
+          </>
+          )}
+        </nav>
+
+        <div className="rd-sidebar-bottom">
+          {role === "ADMIN" && <button onClick={() => { setRecruitmentPage("settings"); setSection("recruitment"); }}>
+            <Icon>⚙</Icon>
+            Settings
+          </button>}
+
+         <div className="rd-user">
+  <div className="rd-avatar">{(adminUser?.name || adminUser?.email || "U").slice(0, 2).toUpperCase()}</div>
+
+  <div>
+    <strong>{adminUser?.name || adminUser?.email || "Authenticated user"}</strong>
+    <span>{role || "Authenticated"}</span>
+  </div>
+
+  <button
+    type="button"
+    className="rd-logout"
+    title="Logout"
+    onClick={onLogout}
+  >
+    ↪
+  </button>
+</div>
+        </div>
+      </aside>
+
+      <main className="rd-main">
+        {authError && <p className="rd-auth-error" role="alert">{authError}</p>}
+        <header className="rd-topbar">
+          <div>
+            <p>Recruitment Management</p>
+            <h1>
+              {section === "dashboard"
+                ? "Dashboard"
+                : section === "candidates"
+                ? "Candidates"
+                : section === "bdm"
+                ? "Business Development"
+                : section === "ra"
+                ? "Research / RA"
+                : section === "recruitment"
+                ? "Recruitment"
+                : "Employer Enquiries"}
+            </h1>
+          </div>
+
+          <div className="rd-top-actions">
+            <button className="rd-date">Last 30 Days⌄</button>
+
+            <button
+              className="rd-add-button"
+              onClick={() => setShowUpload(true)}
+            >
+              <span>＋</span>
+              Add Candidate
+            </button>
+          </div>
+        </header>
+
+        {section === "bdm" && (
+          <BdmModule onBack={() => setSection("dashboard")} />
+        )}
+
+        {section === "ra" && (
+          <RaModule onBack={() => setSection("dashboard")} />
+        )}
+
+        {section === "recruitment" && (
+          <RecruitmentWorkspace
+            key={recruitmentPage}
+            initialPage={recruitmentPage}
+            onBack={() => setSection("dashboard")}
+          />
+        )}
+
+        {section === "dashboard" && (
+          <>
+            <section className="rd-stat-grid">
+              <StatCard
+                icon="♙"
+                label="Total Candidates"
+           value={loadingCandidates ? "..." : allCandidates.length}
+                change=""
+                text="vs last month"
+              />
+
+              <StatCard
+                icon="▣"
+                label="CVs Today"
+              value={loadingCandidates ? "..." : cvsToday}
+                change=""
+                text="vs yesterday"
+              />
+
+              <StatCard
+                icon="⇧"
+                label="Manual Uploads"
+               value={loadingCandidates ? "..." : manualUploads}
+                change=""
+text="total manual uploads"
+              />
+<StatCard
+  icon="◉"
+  label="Website Visitors"
+  value="—"
+  change=""
+  text="tracking not connected"
+/>
+<StatCard
+  icon="▤"
+  label="Employer Enquiries"
+  value={loadingEnquiries ? "..." : enquiries.length}
+  change={loadingEnquiries ? "..." : newEnquiries}
+  text="new enquiries"
+/>
+ </section>           
+             <section className="rd-analytics-grid">
+              <div className="rd-card rd-activity-card">
+                <CardHeader
+                  title="Recruitment Activity"
+                  subtitle="Website visitors and CV submissions"
+                />
+
+                <div className="rd-chart-legend">
+                  <span>
+                    <i className="legend-primary"></i>
+                    Visitors
+                  </span>
+                  <span>
+                    <i className="legend-secondary"></i>
+                    CV Submissions
+                  </span>
+                </div>
+
+                <div className="rd-line-chart">
+                  <div className="rd-y-labels">
+                    <span>1,000</span>
+                    <span>750</span>
+                    <span>500</span>
+                    <span>250</span>
+                    <span>0</span>
+                  </div>
+
+                  <div className="rd-chart-area">
+                    <div className="rd-grid-line one"></div>
+                    <div className="rd-grid-line two"></div>
+                    <div className="rd-grid-line three"></div>
+                    <div className="rd-grid-line four"></div>
+
+                    <svg
+                      viewBox="0 0 700 220"
+                      preserveAspectRatio="none"
+                      aria-label="Recruitment activity chart"
+                    >
+                      <defs>
+                        <linearGradient
+                          id="visitorFill"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="0%"
+                            stopColor="#5b6cff"
+                            stopOpacity=".22"
+                          />
+                          <stop
+                            offset="100%"
+                            stopColor="#5b6cff"
+                            stopOpacity="0"
+                          />
+                        </linearGradient>
+                      </defs>
+
+                      <path
+                        className="rd-area"
+                        d="M0 175 C55 155,90 165,130 138 S205 92,250 110 S330 150,375 120 S445 55,495 80 S575 145,620 100 S670 50,700 68 L700 220 L0 220 Z"
+                      />
+
+                      <path
+                        className="rd-line visitors"
+                        d="M0 175 C55 155,90 165,130 138 S205 92,250 110 S330 150,375 120 S445 55,495 80 S575 145,620 100 S670 50,700 68"
+                      />
+
+                      <path
+                        className="rd-line submissions"
+                        d="M0 196 C70 188,110 190,150 181 S230 165,280 175 S360 190,410 173 S490 145,535 158 S620 181,700 150"
+                      />
+                    </svg>
+
+                    <div className="rd-x-labels">
+                      <span>Sep 6</span>
+                      <span>Sep 11</span>
+                      <span>Sep 16</span>
+                      <span>Sep 21</span>
+                      <span>Sep 26</span>
+                      <span>Oct 1</span>
+                      <span>Oct 5</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rd-card">
+                <CardHeader
+                  title="Candidate Sources"
+                  subtitle="Where candidates came from"
+                />
+
+                <div className="rd-donut-wrap">
+                  <div className="rd-donut">
+                    <div>
+                   <strong>{loadingCandidates ? "..." : allCandidates.length}</strong>
+                      <span>Total</span>
+                    </div>
+                  </div>
+
+                  <div className="rd-donut-list">
+                    <DonutItem
+                      label="Website"
+                   value={websiteCandidates}
+percent={sourcePercent(websiteCandidates)}
+                    type="one"
+                    />
+
+<DonutItem
+  label="Manual Upload"
+  value={manualUploads}
+  percent={sourcePercent(manualUploads)}
+  type="two"
+/>
+
+<DonutItem
+  label="Other"
+  value={otherCandidates}
+  percent={sourcePercent(otherCandidates)}
+  type="four"
+/>
+</div>
+                </div>
+              </div>
+            </section>
+
+            <section className="rd-lower-grid">
+              <div className="rd-card">
+                <CardHeader
+                  title="Visitors by Country"
+                  subtitle="Top countries in the last 30 days"
+                  action="View report"
+                />
+
+                <div className="rd-country-list">
+                  <Country
+                    flag="🇮🇳"
+                    name="India"
+                    visitors="1,240"
+                    percent={76}
+                  />
+                  <Country
+                    flag="🇬🇧"
+                    name="United Kingdom"
+                    visitors="684"
+                    percent={54}
+                  />
+                  <Country
+                    flag="🇦🇪"
+                    name="UAE"
+                    visitors="521"
+                    percent={42}
+                  />
+                  <Country
+                    flag="🇺🇸"
+                    name="United States"
+                    visitors="416"
+                    percent={34}
+                  />
+                  <Country
+                    flag="🇸🇬"
+                    name="Singapore"
+                    visitors="327"
+                    percent={27}
+                  />
+                </div>
+              </div>
+
+              <div className="rd-card rd-recent-card">
+                <CardHeader
+                  title="Recent Candidates"
+                  subtitle="Latest candidate submissions"
+                  action="View all"
+                  onAction={() => setSection("candidates")}
+                />
+
+             <CandidateTable
+  candidates={allCandidates.slice(0, 5)}
+  compact
+/>
+              </div>
+            </section>
+          </>
+        )}
+
+        {section === "candidates" && (
+          <section className="rd-card rd-page-card">
+            <div className="rd-candidate-toolbar">
+              <div>
+                <h2>All Candidates</h2>
+                <p>Manage candidates and their CVs.</p>
+              </div>
+
+              <button
+                className="rd-add-button"
+                onClick={() => setShowUpload(true)}
+              >
+                ＋ Add Candidate
+              </button>
+            </div>
+
+            <div className="rd-filters">
+              <div className="rd-search">
+                <span>⌕</span>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search name, email, phone, skills..."
+                />
+              </div>
+
+              <select defaultValue="">
+                <option value="">Country</option>
+                <option>India</option>
+                <option>United Kingdom</option>
+                <option>UAE</option>
+              </select>
+
+              <select defaultValue="">
+                <option value="">Job Title</option>
+                <option>Project Manager</option>
+                <option>Software Engineer</option>
+              </select>
+
+              <select defaultValue="">
+                <option value="">Source</option>
+                <option>Website</option>
+                <option>Manual Upload</option>
+              </select>
+
+              <input type="date" aria-label="Filter by date" />
+            </div>
+
+            <CandidateTable candidates={candidates} />
+          </section>
+        )}
+
+      {section === "enquiries" && (
+  <section className="rd-card rd-page-card">
+    <div className="rd-candidate-toolbar">
+      <div>
+        <h2>Employer Enquiries</h2>
+        <p>
+          Hiring requests and enquiries submitted through the website.
+        </p>
+      </div>
+
+      <span className="rd-new-pill">
+        {loadingEnquiries ? "..." : `${newEnquiries} New`}
+      </span>
+    </div>
+
+    {loadingEnquiries ? (
+      <div className="rd-empty-state">
+        <p>Loading employer enquiries...</p>
+      </div>
+    ) : enquiries.length === 0 ? (
+      <div className="rd-empty-state">
+        <div>▣</div>
+        <h3>No employer enquiries yet</h3>
+        <p>
+          New website enquiries will automatically appear here.
+        </p>
+      </div>
+    ) : (
+      <div className="rd-table-wrap">
+        <table className="rd-table">
+          <thead>
+            <tr>
+              <th>Company / Contact</th>
+              <th>Email / Phone</th>
+              <th>Country</th>
+              <th>Enquiry Type</th>
+              <th>Requirement</th>
+              <th>Status</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {enquiries.map((enquiry) => (
+              <tr key={enquiry.id}>
+                <td>
+                  <strong>{enquiry.company || "—"}</strong>
+                  <br />
+                  <span>{enquiry.name || "—"}</span>
+                </td>
+
+                <td>
+                  <strong>{enquiry.email || "—"}</strong>
+                  <br />
+                  <span>
+                    {enquiry.countryCode || ""}
+                    {enquiry.phone || "—"}
+                  </span>
+                </td>
+
+                <td>{enquiry.country || "—"}</td>
+
+                <td>{enquiry.enquiryType || "—"}</td>
+
+                <td>
+                  <span title={enquiry.message || ""}>
+                    {enquiry.message
+                      ? enquiry.message.length > 80
+                        ? `${enquiry.message.slice(0, 80)}...`
+                        : enquiry.message
+                      : "—"}
+                  </span>
+                </td>
+
+                <td>
+                  <span className="rd-source website">
+                    {enquiry.status || "NEW"}
+                  </span>
+                </td>
+
+                <td>
+                  {enquiry.createdAt
+                    ? new Date(enquiry.createdAt).toLocaleDateString()
+                    : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </section>
+)}
+      </main>
+
+      {showUpload && (
+        <div
+          className="rd-modal-backdrop"
+          onMouseDown={() => setShowUpload(false)}
+        >
+          <div
+            className="rd-modal"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              className="rd-modal-close"
+              onClick={() => setShowUpload(false)}
+            >
+              ×
+            </button>
+
+            <div className="rd-upload-icon">⇧</div>
+
+            <h2>Add Candidate</h2>
+            <p className="rd-modal-subtitle">
+              Upload a CV received directly by your recruitment team.
+            </p>
+<form
+  onSubmit={async (e) => {
+    e.preventDefault();
+
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+
+    try {
+      const response = await fetch("/api/admin/candidates", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || "Unable to upload candidate."
+        );
+      }
+
+      alert("Candidate CV uploaded successfully.");
+
+form.reset();
+setShowUpload(false);
+setLoadingCandidates(true);
+setAllCandidates(await loadCandidates());
+setLoadingCandidates(false);
+
+    } catch (error) {
+      console.error("CANDIDATE UPLOAD ERROR:", error);
+      alert(error.message);
+    }
+  }}
+>
+  <label>
+    Candidate Name
+    <input
+      name="name"
+      placeholder="Enter candidate name"
+      required
+    />
+  </label>
+
+  <div className="rd-form-row">
+    <label>
+      Email
+      <input
+        name="email"
+        type="email"
+        placeholder="candidate@email.com"
+      />
+    </label>
+
+    <label>
+      Phone
+      <input
+        name="phone"
+        placeholder="+44..."
+      />
+    </label>
+  </div>
+
+  <label>
+    Upload CV <b>*</b>
+
+    <div className="rd-file-box">
+      <span className="rd-file-icon">▤</span>
+
+      <div>
+        <strong>Choose CV file</strong>
+        <small>PDF or DOCX</small>
+      </div>
+
+      <input
+        name="resume"
+        type="file"
+        accept=".pdf,.docx"
+        required
+      />
+    </div>
+  </label>
+
+  <label>
+    Source
+    <input
+      value="Manual Upload"
+      readOnly
+      className="rd-readonly"
+    />
+  </label>
+
+  <div className="rd-modal-actions">
+    <button
+      type="button"
+      className="rd-cancel"
+      onClick={() => setShowUpload(false)}
+    >
+      Cancel
+    </button>
+
+    <button
+      type="submit"
+      className="rd-save"
+    >
+      ⇧ Upload & Save Candidate
+    </button>
+  </div>
+</form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatCard({ icon, label, value, change, text }) {
+  return (
+    <article className="rd-stat-card">
+      <div className="rd-stat-top">
+        <div className="rd-stat-icon">{icon}</div>
+        <span className="rd-more">•••</span>
+      </div>
+
+      <span className="rd-stat-label">{label}</span>
+      <strong className="rd-stat-value">{value}</strong>
+
+    <div className="rd-stat-change">
+  {change && <span>↗ {change}</span>}
+  {text}
+</div>
+
+    </article>
+  );
+}
+
+function CardHeader({ title, subtitle, action, onAction }) {
+  return (
+    <div className="rd-card-header">
+      <div>
+        <h2>{title}</h2>
+        <p>{subtitle}</p>
+      </div>
+
+      {action && (
+        <button onClick={onAction}>
+          {action} →
+        </button>
+      )}
+    </div>
+  );
+}
+
+function DonutItem({ label, value, percent, type }) {
+  return (
+    <div className="rd-donut-item">
+      <span className={`rd-source-dot ${type}`}></span>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{percent}</small>
+    </div>
+  );
+}
+
+function Country({ flag, name, visitors, percent }) {
+  return (
+    <div className="rd-country">
+      <span className="rd-flag">{flag}</span>
+
+      <div className="rd-country-main">
+        <div>
+          <strong>{name}</strong>
+          <span>{visitors} visitors</span>
+        </div>
+
+        <div className="rd-progress">
+          <span style={{ width: `${percent}%` }}></span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CandidateTable({ candidates, compact = false }) {
+  return (
+    <div className="rd-table-wrap">
+      <table className="rd-table">
+        <thead>
+          <tr>
+            <th>Candidate</th>
+            {!compact && <th>Phone</th>}
+            <th>Country</th>
+            <th>Current Role</th>
+            {!compact && <th>Experience</th>}
+            <th>Source</th>
+            <th>CV</th>
+            {!compact && <th>Submitted</th>}
+          </tr>
+        </thead>
+
+        <tbody>
+          {candidates.length === 0 ? (
+            <tr>
+              <td colSpan={compact ? 5 : 8} className="rd-empty-row">
+                No candidates are available yet.
+              </td>
+            </tr>
+          ) : candidates.map((candidate) => (
+            <tr key={candidate.id}>
+              <td>
+                <div className="rd-candidate-name">
+                  <div className="rd-small-avatar">
+                    {(candidate.name || "?")
+                      .split(" ")
+                      .slice(0, 2)
+                      .map((word) => word[0])
+                      .join("")}
+                  </div>
+
+                  <div>
+                    <strong>{candidate.name || "—"}</strong>
+                    <span>{candidate.email || "—"}</span>
+                  </div>
+                </div>
+              </td>
+
+              {!compact && <td>{candidate.phone || "—"}</td>}
+
+              <td>{candidate.country || "—"}</td>
+
+              <td>
+                <strong className="rd-role">
+                  {candidate.currentTitle || "—"}
+                </strong>
+              </td>
+
+              {!compact && (
+                <td>
+                  {candidate.experienceYears != null
+                    ? `${candidate.experienceYears} Years`
+                    : "—"}
+                </td>
+              )}
+
+              <td>
+                <span
+                  className={
+                    candidate.source === "TALENT_NETWORK"
+                      ? "rd-source website"
+                      : "rd-source manual"
+                  }
+                >
+                  {candidate.source === "TALENT_NETWORK"
+                    ? "Website"
+                    : candidate.source === "MANUAL_UPLOAD"
+                    ? "Manual Upload"
+                    : candidate.source || "—"}
+                </span>
+              </td>
+
+              <td>
+                <div className="rd-cv-actions">
+                  <span>{candidate.resumeFileName || "No CV"}</span>
+
+                  {candidate.resumeFileName && (
+                    <div className="rd-cv-buttons">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          window.open(
+                            `/api/admin/candidates/${candidate.id}/resume?mode=view`,
+                            "_blank"
+                          )
+                        }
+                      >
+                        View
+                      </button>
+
+                      <a
+                        href={`/api/admin/candidates/${candidate.id}/resume?mode=download`}
+                      >
+                        Download
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </td>
+
+              {!compact && (
+                <td>
+                  {candidate.createdAt
+                    ? new Date(candidate.createdAt).toLocaleDateString()
+                    : "—"}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}

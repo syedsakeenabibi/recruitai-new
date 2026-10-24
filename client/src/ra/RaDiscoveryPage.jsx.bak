@@ -1,0 +1,753 @@
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { raApi } from "./raApi";
+import { recruitmentApi } from "../recruitment/recruitmentApi";
+import ManualUrlImport from "./ManualUrlImport";
+
+export default function RaDiscoveryPage({ campaigns = [], campaign = null, initialCampaignId = "" }) {
+  const selectedCampaignId = initialCampaignId || campaign?.id || "";
+  const [sourceStatus, setSourceStatus] = useState("NOT_SEARCHED");
+  const [opportunities, setOpportunities] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [filters, setFilters] = useState({
+    country: campaign?.country || "BOTH",
+    category: "BOTH",
+    title: "",
+    keywords: "",
+    company: "",
+    location: "",
+    source: "BOTH",
+    after: "",
+    before: "",
+  });
+  const [liveResults, setLiveResults] = useState([]);
+  const [jobsPage, setJobsPage] = useState(1);
+  const [providerStatus, setProviderStatus] = useState([]);
+  const [sourceCatalogue, setSourceCatalogue] = useState([]);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [effectiveTargeting, setEffectiveTargeting] = useState(null);
+  const [savingId, setSavingId] = useState("");
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkSaveProgress, setBulkSaveProgress] = useState("");
+  const [leadStatus, setLeadStatus] = useState({});
+  const [contactResults, setContactResults] = useState({});
+  const [contactLoadingId, setContactLoadingId] = useState("");
+  const [pasteUrl, setPasteUrl] = useState("");
+  const [urlLoading, setUrlLoading] = useState(false);
+  const [urlResolution, setUrlResolution] = useState(null);
+  const [lastSuccessfulRefresh, setLastSuccessfulRefresh] = useState("");
+  const [manualPrefill, setManualPrefill] = useState(null);
+
+  const cacheKey = "ra-discovery-session-v1";
+  useEffect(() => {
+    try {
+      const cached = JSON.parse(sessionStorage.getItem(cacheKey) || "null");
+      if (!cached || cached.campaignId !== selectedCampaignId) return;
+      if (cached.filters) setFilters(cached.filters);
+      if (Array.isArray(cached.liveResults)) setLiveResults(cached.liveResults);
+      if (Array.isArray(cached.providerStatus)) setProviderStatus(cached.providerStatus);
+      if (cached.sourceStatus) setSourceStatus(cached.sourceStatus);
+      if (cached.effectiveTargeting) setEffectiveTargeting(cached.effectiveTargeting);
+      if (cached.lastSuccessfulRefresh) setLastSuccessfulRefresh(cached.lastSuccessfulRefresh);
+      setHasSearched(Boolean(cached.hasSearched));
+    } catch (e) { console.warn("RA cache restore failed:", e); }
+  }, [selectedCampaignId]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(cacheKey, JSON.stringify({
+        campaignId: selectedCampaignId, filters, liveResults, providerStatus,
+        sourceStatus, effectiveTargeting, lastSuccessfulRefresh, hasSearched
+      }));
+    } catch (e) { console.warn("RA cache save failed:", e); }
+  }, [selectedCampaignId, filters, liveResults, providerStatus, sourceStatus, effectiveTargeting, lastSuccessfulRefresh, hasSearched]);
+  const selectedCampaign = useMemo(
+    () => campaigns.find((item) => item.id === selectedCampaignId) || campaign || null,
+    [campaign, campaigns, selectedCampaignId]
+  );
+
+  useEffect(() => {
+    raApi.listSources()
+      .then((result) => setSourceCatalogue(result.sources || []))
+      .catch((loadError) => setError(loadError.message));
+  }, []);
+
+  const loadOpportunities = useCallback(async () => {
+    if (!selectedCampaignId) return [];
+    const result = await raApi.listOpportunities(selectedCampaignId);
+    return result.opportunities || [];
+  }, [selectedCampaignId]);
+
+  useEffect(() => {
+    let active = true;
+    loadOpportunities()
+      .then((items) => {
+        if (active) setOpportunities(items);
+      })
+      .catch((loadError) => {
+        if (active) {
+          setOpportunities([]);
+          console.error(loadError);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [loadOpportunities]);
+
+  async function refreshOpportunities() {
+    try {
+      setOpportunities(await loadOpportunities());
+    } catch (loadError) {
+      setOpportunities([]);
+      console.error(loadError);
+    }
+  }
+
+  async function handleDiscover() {
+    setLoading(true);
+    setError("");
+    setHasSearched(true);
+    setSourceStatus("SEARCHING");
+    setProviderStatus([]);
+    try {
+      const result = await raApi.discoverLive({
+        campaignId: selectedCampaignId || undefined,
+        country: filters.country,
+        category: filters.category,
+        title: filters.title.trim() || undefined,
+        keywords: filters.keywords.split(",").map((value) => value.trim()).filter(Boolean),
+        company: filters.company.trim() || undefined,
+        location: filters.location.trim() || undefined,
+        source: filters.source,
+        after: filters.after || undefined,
+        before: filters.before || undefined,
+      });
+      setSourceStatus(result.sourceStatus || "UNAVAILABLE");
+      setProviderStatus(result.providerStatus || []);
+      setLiveResults(result.opportunities || []);
+      setEffectiveTargeting(result.effectiveTargeting || null);
+      if (result.sourceStatus === "LIVE_API") setLastSuccessfulRefresh(new Date().toISOString());
+      await refreshOpportunities();
+    } catch (discoverError) {
+      setError(discoverError.message);
+      setSourceStatus("REQUEST_FAILED");
+      setLiveResults([]);
+      setProviderStatus([]);
+      setEffectiveTargeting(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGetJobs() {
+    setUrlLoading(true);
+    setError("");
+    setHasSearched(true);
+    setLastSuccessfulRefresh("");
+    setLiveResults([]);
+    setSourceStatus("SEARCHING");
+    setProviderStatus([]);
+    try {
+      const result = await raApi.searchUrl({
+        url: pasteUrl.trim(),
+        country: filters.country,
+        category: filters.category,
+      });
+      const resolution = result.urlResolution || {};
+      setUrlResolution(resolution);
+      setProviderStatus(result.providerStatus || []);
+      setLiveResults(result.opportunities || []);
+      setSourceStatus(result.sourceStatus || "UNAVAILABLE");
+      const parsed = result.searchFilters || {};
+      setFilters((current) => ({
+        ...current,
+        country: parsed.country || current.country,
+        category: parsed.category || current.category,
+        title: parsed.title || current.title,
+        keywords: parsed.keywords || current.keywords,
+        company: parsed.company || current.company,
+        location: parsed.location || current.location,
+        source: resolution.resultSource || (resolution.provider && ["GREENHOUSE", "LEVER", "ASHBY", "SMARTRECRUITERS"].includes(resolution.provider) ? resolution.provider : "BOTH"),
+      }));
+      if (resolution.lastSuccessfulRefresh) setLastSuccessfulRefresh(resolution.lastSuccessfulRefresh);
+      if (resolution.isIndividualJob && resolution.manualReviewRequired) {
+        setManualPrefill({
+          sourceUrl: resolution.originalUrl || pasteUrl.trim(),
+          jobTitle: resolution.title || "",
+          companyName: resolution.company || "",
+          country: parsed.country === "BOTH" ? "" : parsed.country || "",
+        });
+      } else {
+        setManualPrefill(null);
+      }
+      await refreshOpportunities();
+    } catch (searchError) {
+      setError(searchError.message);
+      setSourceStatus("REQUEST_FAILED");
+      setProviderStatus([]);
+      setUrlResolution({
+        provider: "UNKNOWN",
+        access: "FETCH FAILED",
+        mode: "FETCH_FAILED",
+        originalUrl: pasteUrl.trim(),
+        lastSuccessfulRefresh: null,
+      });
+    } finally {
+      setUrlLoading(false);
+    }
+  }
+
+  function updateFilter(name, value) {
+    setFilters((current) => ({ ...current, [name]: value }));
+  }
+
+  function saveSource() {
+    if (!urlResolution?.originalUrl) return;
+    try {
+      const stored = localStorage.getItem("ra-saved-job-sources");
+      const saved = stored ? JSON.parse(stored) : [];
+      if (!Array.isArray(saved) || !saved.every((item) => typeof item === "string")) {
+        throw new Error("Saved job sources have an invalid local format.");
+      }
+      const next = [...new Set([...saved, urlResolution.originalUrl])];
+      localStorage.setItem("ra-saved-job-sources", JSON.stringify(next));
+      setUrlResolution((current) => ({ ...current, saved: true }));
+    } catch (saveError) {
+      setError(`Unable to save this source in this browser: ${saveError.message}`);
+    }
+  }
+
+  async function saveLiveJob(job) {
+    const key = liveJobKey(job);
+    setSavingId(key);
+    setError("");
+    try {
+      const result = await raApi.saveLive({
+        campaignId: selectedCampaignId || undefined,
+        provider: job.sourceProvider,
+        board: job.sourceBoard,
+        externalId: job.externalId,
+      });
+      setLiveResults((current) => current.map((entry) => liveJobKey(entry) === key
+        ? { ...entry, savedOpportunity: result.opportunity, duplicate: result.duplicate }
+        : entry));
+      await refreshOpportunities();
+    } catch (saveError) {
+      setError(saveError.message);
+    } finally {
+      setSavingId("");
+    }
+  }
+
+  async function saveAllLiveJobs() {
+    const pending = liveResults.filter((job) => !job.savedOpportunity).slice(0, 100);
+    if (!pending.length) {
+      setBulkSaveProgress("All displayed jobs are already saved.");
+      return;
+    }
+
+    setBulkSaving(true);
+    setError("");
+    let saved = 0;
+    let failed = 0;
+
+    try {
+      for (let i = 0; i < pending.length; i++) {
+        const job = pending[i];
+        setBulkSaveProgress("Saving " + (i + 1) + " of " + pending.length + "...");
+        try {
+          const result = await raApi.saveLive({
+            campaignId: selectedCampaignId || undefined,
+            provider: job.sourceProvider,
+            board: job.sourceBoard,
+            externalId: job.externalId,
+          });
+
+          if (!result.opportunity) throw new Error("No saved opportunity returned.");
+
+          saved++;
+          setLiveResults((current) => current.map((entry) =>
+            liveJobKey(entry) === liveJobKey(job)
+              ? { ...entry, savedOpportunity: result.opportunity, duplicate: result.duplicate }
+              : entry
+          ));
+        } catch (err) {
+          failed++;
+          console.error("Bulk save failed:", err.message);
+        }
+      }
+
+      setBulkSaveProgress("Completed: " + saved + " saved, " + failed + " failed.");
+      await refreshOpportunities();
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
+  async function sendToBdm(job) {
+    const saved = job.savedOpportunity;
+    const key = liveJobKey(job);
+    const verifiedChannel = contactResults[key]?.channels?.find(
+      (channel) => channel.verificationStatus === "VERIFIED_RECRUITMENT_CHANNEL"
+    );
+    if (!saved) {
+      setError("Save and re-verify the vacancy before sending it to BDM.");
+      return;
+    }
+    setLeadStatus((current) => ({ ...current, [key]: "Sending to BDM..." }));
+    setError("");
+    try {
+      const existing = await recruitmentApi.listLeads();
+      const existingLead = (existing.leads || []).find((lead) => lead.opportunityId === saved.id);
+      const contactEvidence = verifiedChannel
+        ? `\n${verifiedChannel.verificationStatus} checked ${verifiedChannel.checkedAt}. Evidence: ${verifiedChannel.evidenceUrl}. ${verifiedChannel.confidenceExplanation}`
+        : "";
+      const leadData = {
+        companyName: saved.companyName || job.companyName || null,
+        companyWebsite: saved.companyWebsite || null,
+        country: saved.country || job.country,
+        location: saved.location || job.location || null,
+        source: `${job.sourceProvider} public ATS API`,
+        sourceUrl: saved.sourceUrl || job.sourceUrl,
+        hiringSignal: saved.jobTitle || job.jobTitle,
+        opportunityId: saved.id,
+        ...(verifiedChannel ? {
+          contactName: null,
+          contactTitle: null,
+          contactEmail: verifiedChannel.email,
+          contactSource: `${verifiedChannel.verificationStatus} | ${verifiedChannel.sourceProvider} | ${verifiedChannel.evidenceUrl}`,
+          notes: `Official recruitment channel explicitly published in the live vacancy.${contactEvidence}`,
+        } : {}),
+      };
+      if (existingLead) {
+        if (verifiedChannel && !existingLead.contactEmail) {
+          await recruitmentApi.updateLead(existingLead.id, {
+            ...leadData,
+            notes: [existingLead.notes, leadData.notes].filter(Boolean).join("\n\n"),
+          });
+          setLeadStatus((current) => ({ ...current, [key]: "Verified contact added to existing BDM lead" }));
+        } else {
+          setLeadStatus((current) => ({ ...current, [key]: "Already in BDM leads" }));
+        }
+        return;
+      }
+      const result = await recruitmentApi.createLead(leadData);
+      setLeadStatus((current) => ({
+        ...current,
+        [key]: result.duplicate
+          ? "Already in BDM leads"
+          : verifiedChannel ? "Verified contact and opportunity sent to BDM" : "Sent to BDM",
+      }));
+    } catch (sendError) {
+      setLeadStatus((current) => ({ ...current, [key]: "" }));
+      setError(sendError.message);
+    }
+  }
+
+  async function findHiringContacts(job) {
+    const key = liveJobKey(job);
+    if (!job.savedOpportunity?.id) {
+      setError("Save and re-verify the vacancy before finding hiring contacts.");
+      return;
+    }
+    setContactResults((current) => ({
+      ...current,
+      [key]: {
+        lookupStatus: "LOADING",
+        message: "Searching available hiring contacts...",
+        contacts: [],
+        channels: []
+      }
+    }));
+    setContactLoadingId(key);
+    setError("");
+    try {
+      const result = await raApi.findHiringContacts(job.savedOpportunity.id);
+      setContactResults((current) => ({ ...current, [key]: result }));
+    } catch (lookupError) {
+      setError(lookupError.message);
+    } finally {
+      setContactLoadingId("");
+    }
+  }
+
+  function filteredResults() {
+    return liveResults.filter((job) => {
+      const source = filters.source.toUpperCase();
+      if (source !== "BOTH" && source !== "ALL" && job.sourceProvider !== source) return false;
+      return true;
+    });
+  }
+
+  const JOBS_PER_PAGE = 100;
+  const allFilteredJobs = filteredResults();
+  const totalJobsPages = Math.max(1, Math.ceil(allFilteredJobs.length / JOBS_PER_PAGE));
+  const currentJobsPage = Math.min(jobsPage, totalJobsPages);
+  const paginatedJobs = allFilteredJobs.slice((currentJobsPage - 1) * JOBS_PER_PAGE, currentJobsPage * JOBS_PER_PAGE);
+  const matchedCountForBoard = (status) => liveResults.filter(
+    (job) => job.sourceProvider === status.provider && job.sourceBoard === status.board
+  ).length;
+
+  return (
+    <div className="ra-section">
+      <div className="ra-panel ra-summary">
+        <div>
+          <span className="ra-label">Campaign targeting</span>
+          <h3>{selectedCampaign ? selectedCampaign.name : "No campaign selected"}</h3>
+        </div>
+        {selectedCampaign && (
+          <div className="ra-targeting-grid">
+            <div><strong>Country:</strong> {selectedCampaign.country || "—"}</div>
+            <div><strong>Roles:</strong> {(selectedCampaign.roles || []).join(", ") || "—"}</div>
+            <div><strong>Industries:</strong> {(selectedCampaign.industries || []).join(", ") || "—"}</div>
+            <div><strong>Locations:</strong> {(selectedCampaign.locations || []).join(", ") || "—"}</div>
+            <div><strong>Keywords:</strong> {(selectedCampaign.keywords || []).join(", ") || "—"}</div>
+            <div><strong>Employment:</strong> {(selectedCampaign.employmentTypes || []).join(", ") || "—"}</div>
+            <div><strong>Experience:</strong> {selectedCampaign.experienceMin == null && selectedCampaign.experienceMax == null
+              ? "Not specified"
+              : `${selectedCampaign.experienceMin ?? "No minimum"}–${selectedCampaign.experienceMax ?? "No maximum"} years`}</div>
+          </div>
+        )}
+        {effectiveTargeting && (
+          <p className="ra-muted" role="status">
+            Discovery uses the selected campaign's saved targeting. Experience is shown as campaign context; vacancy experience is not inferred when a posting omits it.
+          </p>
+        )}
+      </div>
+
+      <div className="ra-panel">
+        <div className="ra-form-header">
+          <div>
+            <h3>Research / RA Discovery</h3>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px", marginTop: "12px" }}>
+              <button
+                type="button"
+                className="ra-button"
+                onClick={saveAllLiveJobs}
+                disabled={bulkSaving || loading || urlLoading || Boolean(savingId) || !liveResults.some((job) => !job.savedOpportunity)}
+              >
+                {bulkSaving ? "Saving Jobs..." : "Save All Jobs (" + liveResults.filter((job) => !job.savedOpportunity).length + ")"}
+              </button>
+              {bulkSaveProgress && <span role="status" className="ra-muted">{bulkSaveProgress}</span>}
+            </div>
+            <p>Use the campaign targeting signals to check for real public hiring opportunities.</p>
+          </div>
+        </div>
+
+        {error && <p className="ra-error">{error}</p>}
+
+        <div className="ra-url-search">
+          <label>
+            Paste job search URL or company career page
+            <input
+              type="url"
+              value={pasteUrl}
+              onChange={(event) => setPasteUrl(event.target.value)}
+              placeholder="https://..."
+              maxLength={2048}
+            />
+          </label>
+          <div className="ra-url-actions">
+            <button type="button" className="ra-button" disabled={urlLoading || !pasteUrl.trim()} onClick={handleGetJobs}>
+              {urlLoading ? "Checking source..." : "Get Jobs"}
+            </button>
+            <button type="button" className="ra-button ra-button-secondary" disabled={!urlResolution?.originalUrl} onClick={() => {
+              if (urlResolution?.originalUrl) window.open(urlResolution.originalUrl, "_blank", "noopener,noreferrer");
+            }}>Open Original Website</button>
+            <button type="button" className="ra-button ra-button-secondary" disabled={!urlResolution?.originalUrl || Boolean(urlResolution?.saved)} onClick={saveSource}>{urlResolution?.saved ? "Source Saved" : "Save Source"}</button>
+          </div>
+          {urlResolution && (
+            <div className="ra-url-status" role="status">
+              <strong>{urlResolution.mode === "LIVE_API" ? `${urlResolution.provider} Live API Connected`
+                : urlResolution.mode === "FETCH_FAILED" ? `${urlResolution.provider || "Source"} Fetch Failed`
+                  : urlResolution.access === "AUTHORIZATION REQUIRED" ? `${urlResolution.provider} Authorization Required`
+                    : `${urlResolution.provider || "Company careers page"} Manual Link`}</strong>
+              <span>{urlResolution.resultSource
+                ? `Results below come from ${urlResolution.resultSource}, not the pasted third-party source.`
+                : urlResolution.access === "AUTHORIZATION REQUIRED"
+                  ? "No authorized portal API is configured; searching connected public ATS APIs using the parsed filters."
+                  : "Original URL retained. Review and enter vacancy details below; the destination was not crawled."}</span>
+              {lastSuccessfulRefresh && <span>Last successful refresh: {new Date(lastSuccessfulRefresh).toLocaleString()}</span>}
+              {urlResolution.manualReviewRequired && <span>Individual vacancy URL: manual review and entry required.</span>}
+            </div>
+          )}
+        </div>
+
+        <div className="ra-status-card">
+          <span className="ra-label">Discovery source status</span>
+          <strong>
+            {sourceStatus === "NOT_SEARCHED"
+              ? "Live vacancy discovery has not been run yet."
+              : sourceStatus === "SEARCHING"
+                ? "Checking the configured public ATS APIs..."
+                : sourceStatus === "REQUEST_FAILED"
+                  ? "The discovery request failed before provider responses were received. See the request error above."
+                  : sourceStatus === "LIVE_API"
+                    ? liveResults.length
+                      ? "Live public ATS APIs responded. Results below are source-verified vacancies."
+                      : "Public ATS APIs responded, but no vacancies matched this campaign and its optional filters."
+                    : providerStatus.length
+                      ? "No configured public ATS source responded. Review the provider failures below and try again later."
+                      : "The discovery response included no provider connection statuses."}
+          </strong>
+        </div>
+
+        {providerStatus.length > 0 && (
+          <div className="ra-source-status-list" aria-label="ATS source connection status">
+            {providerStatus.map((status) => (
+              <div key={`${status.provider}-${status.board}`} className="ra-source-status">
+                <strong>{status.provider}</strong>
+                <span>{status.board}</span>
+                <span className={status.status === "CONNECTED" ? "ra-source-live"
+                  : status.status === "AUTH_REQUIRED" ? "ra-source-auth"
+                    : status.status === "RATE_LIMITED" ? "ra-source-rate-limited"
+                      : "ra-source-error"}>
+                  {status.status === "CONNECTED"
+                    ? `LIVE API · ${matchedCountForBoard(status)} matched of ${status.returned} listings retrieved${status.truncated ? ` (${status.totalAvailable} available; bounded refresh)` : ""}${status.lastSuccessfulRefresh ? ` · Last successful refresh ${new Date(status.lastSuccessfulRefresh).toLocaleTimeString()}` : ""}`
+                    : status.status === "AUTH_REQUIRED"
+                      ? `AUTHORIZATION REQUIRED · ${status.error}${status.lastCheckedAt ? ` · Checked ${new Date(status.lastCheckedAt).toLocaleTimeString()}` : ""}`
+                      : status.status === "RATE_LIMITED"
+                        ? `RATE LIMITED · ${status.error}${status.lastCheckedAt ? ` · Checked ${new Date(status.lastCheckedAt).toLocaleTimeString()}` : ""}`
+                        : `UNAVAILABLE · ${status.error}${status.lastCheckedAt ? ` · Checked ${new Date(status.lastCheckedAt).toLocaleTimeString()}` : ""}`}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="ra-panel">
+        <div className="ra-form-header">
+          <div><h3>Live vacancy filters</h3><p>Search real public Greenhouse, Lever, Ashby, and SmartRecruiters job board APIs.</p></div>
+        </div>
+        <div className="ra-live-filters">
+          <label>Country<select value={selectedCampaign?.country || filters.country} disabled={Boolean(selectedCampaign?.country)} onChange={(event) => updateFilter("country", event.target.value)}><option value="BOTH">US + UK</option><option value="US">United States</option><option value="UK">United Kingdom</option></select></label>
+          <label>Category<select value={filters.category} onChange={(event) => updateFilter("category", event.target.value)}><option value="BOTH">IT + Non-IT</option><option value="IT">IT</option><option value="NON-IT">Non-IT</option></select></label>
+          <label>Source<select value={filters.source} onChange={(event) => updateFilter("source", event.target.value)}><option value="BOTH">All public ATS</option><option value="GREENHOUSE">Greenhouse</option><option value="LEVER">Lever</option><option value="ASHBY">Ashby</option><option value="SMARTRECRUITERS">SmartRecruiters</option></select></label>
+          <label>Optional title filter<input value={filters.title} onChange={(event) => updateFilter("title", event.target.value)} placeholder="e.g. Software Engineer" /></label>
+          <label>Additional keywords<input value={filters.keywords} onChange={(event) => updateFilter("keywords", event.target.value)} placeholder="Optional comma-separated terms" /></label>
+          <label>Optional company filter<input value={filters.company} onChange={(event) => updateFilter("company", event.target.value)} /></label>
+          <label>Optional location filter<input value={filters.location} onChange={(event) => updateFilter("location", event.target.value)} /></label>
+          <div className="ra-date-presets" style={{display:"flex",flexWrap:"wrap",gap:"8px",alignItems:"center"}}>
+            {[
+              ["Today",0,0],
+              ["Yesterday",1,1],
+              ["Last 7 Days",6,0],
+              ["Last 30 Days",29,0],
+              ["This Year","year",0],
+              ["All Dates",null,null]
+            ].map(([label,start,end]) => (
+              <button key={label} type="button" className="ra-button ra-button-secondary" onClick={() => {
+                const now = new Date();
+                const dateAt = (days) => {
+                  const d = new Date(now.getFullYear(),now.getMonth(),now.getDate() - days);
+                  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+                };
+                setFilters(current => ({
+                  ...current,
+                  after: start === null ? "" : start === "year" ? `${now.getFullYear()}-01-01` : dateAt(start),
+                  before: end === null ? "" : dateAt(end)
+                }));
+              }}>{label}</button>
+            ))}
+          </div>
+          <label>Posted after<input type="date" value={filters.after} onChange={(event) => updateFilter("after", event.target.value)} /></label>
+          <label>Posted before<input type="date" value={filters.before} onChange={(event) => updateFilter("before", event.target.value)} /></label>
+        </div>
+        <div className="ra-live-actions">
+          <button type="button" className="ra-button ra-button-secondary" onClick={() => {
+            const terms = [filters.company, filters.title, filters.keywords].filter(Boolean).join(" ") || "hiring";
+            const location = filters.location || (filters.country === "UK" ? "United Kingdom" : filters.country === "US" ? "United States" : "");
+            const url = "https://www.linkedin.com/jobs/search/?keywords=" + encodeURIComponent(terms) + "&location=" + encodeURIComponent(location);
+            window.open(url, "_blank", "noopener,noreferrer");
+          }}>Find LinkedIn Jobs</button>
+          <button type="button" className="ra-button" onClick={handleDiscover} disabled={loading}>{loading ? "Checking public ATS boards..." : liveResults.length ? "Refresh vacancies" : selectedCampaign ? "Find Campaign Vacancies" : "Find Hiring Opportunities"}</button>
+          <span className="ra-muted">{sourceCatalogue.filter((source) => source.access === "LIVE API").map((source) => source.provider).join(" · ")} are public board APIs; search connections are reported from actual responses.{lastSuccessfulRefresh ? ` Last successful refresh: ${new Date(lastSuccessfulRefresh).toLocaleString()}.` : ""}</span>
+        </div>
+      </div>
+
+      <div className="ra-panel">
+        <div className="ra-form-header">
+          <div><h3>Live US / UK hiring results</h3><p>{filteredResults().length} genuine vacancies returned by connected sources. Unclassified titles remain available when category is set to both.</p></div>
+        </div>
+        {filteredResults().length === 0 ? (
+          <div className="ra-empty" role="status">
+            <p>{loading
+              ? "Checking the selected campaign against public ATS boards..."
+              : !hasSearched
+                ? "Select a campaign and run live discovery to check current vacancies."
+                : sourceStatus === "REQUEST_FAILED"
+                  ? "The discovery request failed before provider responses were received. See the request error above."
+                  : sourceStatus === "UNAVAILABLE"
+                    ? "No configured public ATS source responded. Check provider status above and try again later."
+                    : "Connected public ATS boards returned no vacancies matching the current targeting and optional filters. No opportunities were fabricated."}</p>
+          </div>
+        ) : (
+          <div className="ra-live-table-wrap">
+            <table className="ra-live-table">
+              <thead><tr><th>Company</th><th>Job title</th><th>Country / city</th><th>Category</th><th>Salary</th><th>Posted date</th><th>Source</th><th>Original job URL</th><th>Actions</th></tr></thead>
+              <tbody>{paginatedJobs.map((job) => {
+                const key = liveJobKey(job);
+                const contactResult = contactResults[key];
+                return (
+                <Fragment key={key}>
+                <tr>
+                  <td>{job.companyName || "Not supplied"}</td>
+                  <td>
+                    {job.jobTitle}
+                    {job.industry && <small>Verified industry signal: {job.industry}</small>}
+                    <small>Employment: {job.employmentType || "Not supplied"}</small>
+                    {job.matchingExplanation && <small>{job.matchingExplanation}</small>}
+                  </td>
+                  <td>{job.country}{job.city ? ` · ${job.city}` : job.location ? ` · ${job.location}` : ""}</td>
+                  <td>{job.category === "Unclassified" ? "Category not verified" : job.category}</td>
+                  <td>
+                    {job.salaryText || "Not supplied"}
+                    {(job.salaryCurrency || job.salaryPeriod) && (
+                      <small>{[job.salaryCurrency, job.salaryPeriod && `per ${job.salaryPeriod}`].filter(Boolean).join(" ")}</small>
+                    )}
+                  </td>
+                  <td>{job.postedAt ? new Date(job.postedAt).toLocaleDateString() : "Not supplied"}</td>
+                  <td>{job.sourceProvider} · {job.sourceAccess}</td>
+                  <td><a href={job.sourceUrl} target="_blank" rel="noreferrer">{job.sourceUrl}</a><small>{job.lastVerifiedAt ? `Last checked ${new Date(job.lastVerifiedAt).toLocaleString()}` : "Last checked time unavailable"}</small></td>
+                  <td className="ra-live-row-actions">
+                    <a href={job.sourceUrl} target="_blank" rel="noreferrer">View Job</a>
+                    <button type="button" onClick={() => saveLiveJob(job)} disabled={Boolean(job.savedOpportunity) || savingId === liveJobKey(job)}>
+                      {job.savedOpportunity ? (job.duplicate ? "Already Saved" : "Saved") : savingId === liveJobKey(job) ? "Verifying..." : "Save Opportunity"}
+                    </button>
+                    <button type="button" onClick={() => findHiringContacts(job)} disabled={!job.savedOpportunity || contactLoadingId === key}>
+                      {contactLoadingId === key ? "Checking vacancy..." : "Find Hiring Contacts"}
+                    </button>
+                    <button type="button" onClick={() => sendToBdm(job)} disabled={!job.savedOpportunity || Boolean(leadStatus[liveJobKey(job)])}>Send to BDM</button>
+                    {leadStatus[liveJobKey(job)] && <span role="status">{leadStatus[liveJobKey(job)]}</span>}
+                  </td>
+                </tr>
+                {contactResult && (
+                  <tr className="ra-contact-result-row">
+                    <td colSpan={9}>
+                      <div className="ra-contact-result" role="status">
+                        <strong>
+                          {contactResult.lookupStatus === "LOADING"
+                            ? "Finding hiring contacts..."
+                            : contactResult.contacts?.length
+                              ? "Hiring contact details"
+                              : contactResult.channels?.length
+                                ? "Employer recruitment channels"
+                                : "No hiring contact available"}
+                        </strong>
+                        {contactResult.contacts?.map((contact, index) => (
+                          <div className="ra-contact-channel" key={`${contact.email || index}-${index}`}>
+                            <strong>{contact.contactName || "Name not provided"}</strong>
+                            <span>Position: {contact.contactTitle || "Not provided"}</span>
+                            <span style={{fontWeight:700,color:contact.contactPriority===1?"#15803d":contact.contactPriority===2?"#1d4ed8":"#64748b"}}>
+                              {contact.contactPriority===1?"PRIORITY 1":contact.contactPriority===2?"PRIORITY 2":"PRIORITY 3"} — {contact.contactPriorityLabel || "Other Management Contact"}
+                            </span>
+                            <span>
+                              Business email: {contact.email
+                                ? <a href={`mailto:${contact.email}`}>{contact.email}</a>
+                                : "Not available"}
+                            </span>
+                            {contact.professionalProfileUrl && (
+                              <a href={contact.professionalProfileUrl} target="_blank" rel="noreferrer">
+                                Open professional profile
+                              </a>
+                            )}
+                            <span>Source: {contact.sourceProvider || "Not provided"}</span>
+                            <span>Verification: {contact.verificationStatus || "UNVERIFIED"}</span>
+                          </div>
+                        ))}
+
+                        {contactResult.apolloCompany && (
+                          <div className="ra-contact-channel">
+                            <strong>Apollo Company Information</strong>
+                            <span>Company: {contactResult.apolloCompany.companyName || "Not available"}</span>
+                            <span>Industry: {contactResult.apolloCompany.industry || "Not available"}</span>
+                            <span>Employees: {contactResult.apolloCompany.employeeCount ?? "Not available"}</span>
+                            <span>Domain: {contactResult.apolloCompany.domain || "Not available"}</span>
+                            {contactResult.apolloCompany.website && (
+                              <a href={contactResult.apolloCompany.website} target="_blank" rel="noopener noreferrer">
+                                Open Company Website
+                              </a>
+                            )}
+                            <span>Source: APOLLO</span>
+                            <span>Company information only ? not a verified hiring contact.</span>
+                          </div>
+                        )}
+                        <span>{contactResult.message}</span>
+                        {contactResult.channels?.map((channel) => (
+                          <div className="ra-contact-channel" key={`${channel.email}-${channel.evidenceUrl}`}>
+                            <span>Official recruitment channel: <a href={`mailto:${channel.email}`}>{channel.email}</a></span>
+                            <span>Verification: {channel.verificationStatus} · {channel.confidenceExplanation}</span>
+                            <span>Source: {channel.sourceProvider} · checked {new Date(channel.checkedAt).toLocaleString()}</span>
+                            <a href={channel.evidenceUrl} target="_blank" rel="noreferrer">Open exact vacancy evidence</a>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
+              );})}</tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <ManualUrlImport
+        key={manualPrefill?.sourceUrl || "manual-import"}
+        campaignId={selectedCampaignId}
+        campaign={selectedCampaign}
+        initialValues={manualPrefill || undefined}
+        onImported={refreshOpportunities}
+      />
+
+      <div className="ra-panel">
+        <div className="ra-form-header">
+          <div>
+            <h3>Discovered / imported opportunities</h3>
+            <p>These are the real opportunities currently linked to the selected campaign.</p>
+          </div>
+        </div>
+
+        {opportunities.length === 0 ? (
+          <div className="ra-empty">
+            <p>No opportunities have been discovered or manually imported for this campaign yet.</p>
+          </div>
+        ) : (
+          <div className="ra-list">
+            {opportunities.map((opportunity) => (
+              <article key={opportunity.id} className="ra-item">
+                <div className="ra-item-header">
+                  <div>
+                    <h4>{opportunity.companyName || "Unknown company"}</h4>
+                    <p>{opportunity.jobTitle || "Role not supplied"}</p>
+                  </div>
+                  <span className="ra-badge">{opportunity.status || "NEW"}</span>
+                </div>
+                <div className="ra-meta-grid">
+                  <span><strong>Source:</strong> {opportunity.source || "—"}</span>
+                  <span><strong>Location:</strong> {opportunity.location || "—"}</span>
+                  <span><strong>Country:</strong> {opportunity.country || "—"}</span>
+                  <span><strong>Employment:</strong> {opportunity.employmentType || "—"}</span>
+                  <span><strong>Posted:</strong> {opportunity.postedAt ? new Date(opportunity.postedAt).toLocaleDateString() : "—"}</span>
+                  <span><strong>Last verified:</strong> {opportunity.rawData?.lastVerifiedAt ? new Date(opportunity.rawData.lastVerifiedAt).toLocaleDateString() : "Not recorded"}</span>
+                  <span><strong>Discovered:</strong> {opportunity.discoveredAt ? new Date(opportunity.discoveredAt).toLocaleDateString() : "—"}</span>
+                </div>
+                {opportunity.sourceUrl && (
+                  <a href={opportunity.sourceUrl} target="_blank" rel="noreferrer" className="ra-link">
+                    Open source URL
+                  </a>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function liveJobKey(job) {
+  return `${job.sourceProvider}:${job.sourceBoard}:${job.externalId}`;
+}

@@ -1,0 +1,111 @@
+﻿"use strict";
+
+const ATS = [
+  { provider: "GREENHOUSE", hosts: ["boards.greenhouse.io", "job-boards.greenhouse.io"] },
+  { provider: "LEVER", hosts: ["jobs.lever.co"] },
+  { provider: "ASHBY", hosts: ["jobs.ashbyhq.com"] },
+  { provider: "SMARTRECRUITERS", hosts: ["jobs.smartrecruiters.com", "careers.smartrecruiters.com"] }
+];
+
+function classify(link) {
+  const url = new URL(link);
+  const host = url.hostname.toLowerCase();
+  const segments = url.pathname.split("/").filter(Boolean);
+
+  for (const ats of ATS) {
+    if (ats.hosts.includes(host) && segments[0]) {
+      return { provider: ats.provider, board: segments[0], url: link, access: "LIVE_API" };
+    }
+  }
+
+  if (host === "indeed.com" || host.endsWith(".indeed.com")) {
+    return { provider: "INDEED", url: link, access: "AUTHORIZATION_REQUIRED" };
+  }
+
+  if (host === "linkedin.com" || host.endsWith(".linkedin.com")) {
+    return { provider: "LINKEDIN", url: link, access: "AUTHORIZATION_REQUIRED" };
+  }
+
+  return null;
+}
+
+function extractLinks(html, baseUrl) {
+  const matches = [
+    ...html.matchAll(/(?:href|src)\s*=\s*["']([^"']+)["']/gi),
+    ...html.matchAll(/https?:\\?\/\\?\/[^"'\s<>\\]+/gi)
+  ];
+
+  const urls = [];
+
+  for (const match of matches) {
+    const raw = match[1] || match[0];
+    try {
+      const url = new URL(raw.replace(/\\\//g, "/").replace(/&amp;/g, "&"), baseUrl);
+      if (url.protocol === "https:") urls.push(url.href);
+    } catch {}
+  }
+
+  return [...new Set(urls)];
+}
+
+async function discoverCompanyJobs(pageUrl) {
+  const parsed = new URL(pageUrl);
+
+  if (parsed.protocol !== "https:") throw new Error("HTTPS URL required.");
+
+  // Restrict this test to the two public company sites.
+  const allowed = new Set(["www.eaglerockproperties.com", "www.w3global.com"]);
+  if (!allowed.has(parsed.hostname)) throw new Error("Company domain not allowed in this test.");
+
+  const response = await fetch(parsed.href, {
+    signal: AbortSignal.timeout(20000),
+    headers: { "User-Agent": "Mozilla/5.0" }
+  });
+
+  if (!response.ok) throw new Error("HTTP " + response.status);
+
+  const html = await response.text();
+  const links = extractLinks(html, parsed.href);
+  const sources = links.map(classify).filter(Boolean);
+
+  const unique = [...new Map(sources.map(s => [s.provider + ":" + (s.board || s.url), s])).values()];
+
+  const { discoverAtsJobs } = require("./atsSources");
+  const jobs = [];
+  const statuses = [];
+
+  for (const source of unique) {
+    if (source.access !== "LIVE_API") {
+      statuses.push({ ...source, status: "AUTHORIZATION_REQUIRED" });
+      continue;
+    }
+
+    try {
+      const result = await discoverAtsJobs({
+        source: source.provider,
+        boards: [{ provider: source.provider, slug: source.board }],
+        onlyRequestedBoards: true,
+        country: "BOTH",
+        category: "BOTH"
+      });
+
+      jobs.push(...result.opportunities);
+      statuses.push(...result.sourceStatus);
+    } catch (error) {
+      statuses.push({ ...source, status: "ERROR", error: error.message });
+    }
+  }
+
+  const uniqueJobs = [...new Map(jobs.map(j => [j.sourceUrl, j])).values()];
+
+  return {
+    companyUrl: parsed.href,
+    httpStatus: response.status,
+    detectedSources: unique,
+    providerStatus: statuses,
+    totalJobs: uniqueJobs.length,
+    opportunities: uniqueJobs
+  };
+}
+
+module.exports = { discoverCompanyJobs };

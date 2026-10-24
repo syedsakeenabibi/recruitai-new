@@ -1,0 +1,116 @@
+﻿"use strict";
+
+const dns = require("node:dns").promises;
+const net = require("node:net");
+const { Agent } = require("undici");
+
+const MAX_BYTES = 2 * 1024 * 1024;
+const TIMEOUT_MS = 12000;
+
+function publicIp(ip) {
+  if (net.isIP(ip) === 4) {
+    const p = ip.split(".").map(Number);
+    return !(
+      p[0] === 0 || p[0] === 10 || p[0] === 127 ||
+      p[0] >= 224 || p[0] === 169 && p[1] === 254 ||
+      p[0] === 172 && p[1] >= 16 && p[1] <= 31 ||
+      p[0] === 192 && p[1] === 168 ||
+      p[0] === 100 && p[1] >= 64 && p[1] <= 127 ||
+      p[0] === 192 && p[1] === 0 && p[2] === 0 ||
+      p[0] === 192 && p[1] === 0 && p[2] === 2 ||
+      p[0] === 198 && p[1] >= 18 && p[1] <= 19 ||
+      p[0] === 198 && p[1] === 51 && p[2] === 100 ||
+      p[0] === 203 && p[1] === 0 && p[2] === 113
+    );
+  }
+  if (net.isIP(ip) === 6) {
+    const v = ip.toLowerCase();
+    if (v.includes(".")) return false;
+    const first = parseInt(v.split(":")[0] || "0", 16);
+    return !(v === "::" || v === "::1" ||
+      (first & 0xfe00) === 0xfc00 ||
+      (first & 0xffc0) === 0xfe80 ||
+      (first & 0xff00) === 0xff00 ||
+      (first & 0xffc0) === 0x2000 && v.startsWith("2001:db8"));
+  }
+  return false;
+}
+
+async function validateUrl(raw) {
+  const url = new URL(raw);
+  if (url.protocol !== "https:" || url.username || url.password ||
+      (url.port && url.port !== "443") ||
+      net.isIP(url.hostname) ||
+      url.hostname === "localhost" ||
+      url.hostname.endsWith(".localhost") ||
+      url.hostname.endsWith(".local")) {
+    throw new Error("Only public HTTPS company websites are supported.");
+  }
+
+  const records = await dns.lookup(url.hostname, { all: true });
+  if (!records.length || records.some(r => !publicIp(r.address))) {
+    throw new Error("Website resolves to a restricted network address.");
+  }
+  return { url, addresses: records };
+}
+
+async function fetchPublicPage(raw) {
+  const { url, addresses } = await validateUrl(raw);
+  const allowed = new Set(addresses.map(r => r.address));
+  const dispatcher = new Agent({
+    connect: {
+      lookup(hostname, options, callback) {
+        dns.lookup(hostname, options).then(result => {
+          if (Array.isArray(result)) {
+            if (!result.length || result.some(r => !allowed.has(r.address))) {
+              return callback(new Error("DNS address changed."));
+            }
+            callback(null, result);
+          } else {
+            if (!allowed.has(result.address)) {
+              return callback(new Error("DNS address changed."));
+            }
+            callback(null, result.address, result.family);
+          }
+        }).catch(callback);
+      }
+    }
+  });
+
+  try {
+    const response = await fetch(url, {
+      dispatcher,
+      redirect: "manual",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: {
+        Accept: "text/html",
+        "User-Agent": "FusionStaffingRA/1.0"
+      }
+    });
+
+    if (!response.ok) throw new Error("Website returned HTTP " + response.status);
+
+    const type = response.headers.get("content-type") || "";
+    if (!type.toLowerCase().includes("text/html")) {
+      throw new Error("Website did not return HTML.");
+    }
+
+    const chunks = [];
+    let total = 0;
+    for await (const chunk of response.body) {
+      total += chunk.length;
+      if (total > MAX_BYTES) throw new Error("Page exceeded 2 MB limit.");
+      chunks.push(chunk);
+    }
+
+    return {
+      url: url.href,
+      html: Buffer.concat(chunks).toString("utf8"),
+      status: response.status
+    };
+  } finally {
+    await dispatcher.close();
+  }
+}
+
+module.exports = { fetchPublicPage };

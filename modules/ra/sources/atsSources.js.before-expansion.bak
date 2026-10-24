@@ -1,0 +1,1069 @@
+const { normalizeOpportunity, normalizeUrl } = require("./sourceAdapter");
+const net = require("node:net");
+
+const REQUEST_TIMEOUT_MS = 18000;
+const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const MAX_CONCURRENT_BOARD_REQUESTS = 8;
+const MAX_BOARDS_PER_PROVIDER = 48;
+const SMARTRECRUITERS_PAGE_SIZE = 100;
+const SMARTRECRUITERS_MAX_PAGES = 4;
+const DEFAULT_BOARDS = Object.freeze({
+  GREENHOUSE: [
+    "stripe", "cloudflare", "gitlab", "duolingo", "datadog", "figma", "coinbase",
+    "instacart", "mavenclinic", "sweetgreen", "gusto", "chime",
+    "deliveroo", "monzo", "trustpilot", "sumup",
+    "doximity", "oscar", "talkspace", "zocdoc", "elationhealth", "modernhealth",
+    "buildops", "formlabs", "fictiv", "redwoodmaterials", "lucidmotors",
+    "brex", "ripple", "robinhood", "sofi", "affirm",
+    "flexport", "toast", "healthjoy", "chargepoint", "gymshark", "tide",
+  ],
+  LEVER: ["spotify", "arcadia", "palantir", "protolabs", "gopuff", "zopa"],
+  ASHBY: [
+    "ramp", "linear", "notion", "openai", "headway", "benchling", "plaid",
+    "virtahealth", "honeybook", "jobber", "snyk", "vanta", "whoop",
+    "rula", "higharc", "sondermind", "synthesia", "multiverse",
+  ],
+  SMARTRECRUITERS: ["Experian", "RedBull", "Palantir"],
+});
+
+const SOURCE_ACCESS = Object.freeze([
+  ...Object.keys(DEFAULT_BOARDS).map((provider) => ({
+    provider,
+    access: "LIVE API",
+    requiresCredentials: false,
+    boardCount: DEFAULT_BOARDS[provider].length,
+  })),
+  ...["LINKEDIN_JOBS", "INDEED_US", "INDEED_UK", "GLASSDOOR", "ZIPRECRUITER", "REED_UK", "TOTALJOBS_UK",
+    "LINKEDIN_COMPANY_POSTS", "FACEBOOK_COMPANY_POSTS", "X_TWITTER", "INSTAGRAM"].map((provider) => ({
+    provider,
+    access: "AUTHORIZATION REQUIRED",
+    requiresCredentials: true,
+    boardCount: 0,
+  })),
+  { provider: "DIRECT_CAREERS_PAGES", access: "MANUAL LINK", requiresCredentials: false, boardCount: 0 },
+  { provider: "AUTHORIZED_PARTNER_FEEDS", access: "AUTHORIZATION REQUIRED", requiresCredentials: true, boardCount: 0 },
+]);
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = Array.from({ length: items.length });
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+async function discoverAtsJobs(filters = {}) {
+  const providers = selectProviders(filters.source);
+  const boards = providers.flatMap((provider) =>
+    normalizeBoards(provider, filters.boards, filters.onlyRequestedBoards)
+      .map((board) => ({ provider, ...board }))
+  );
+  const boardResults = await mapWithConcurrency(boards, MAX_CONCURRENT_BOARD_REQUESTS, async ({ provider, slug, company }) => {
+    try {
+      const jobs = await fetchBoard(provider, slug);
+      const refreshedAt = new Date().toISOString();
+      return {
+        jobs: jobs.map((job) => normalizeProviderJob(provider, slug, company, job)),
+        status: {
+          provider,
+          board: slug,
+          access: "LIVE API",
+          status: "CONNECTED",
+          returned: jobs.length,
+          lastCheckedAt: refreshedAt,
+          lastSuccessfulRefresh: refreshedAt,
+          ...(Number.isFinite(jobs.totalFound) ? { totalAvailable: jobs.totalFound, truncated: jobs.truncated } : {}),
+        },
+      };
+    } catch (error) {
+      const authorizationRequired = error.code === "AUTHORIZATION_REQUIRED";
+      const rateLimited = error.statusCode === 429;
+      return {
+        jobs: [],
+        status: {
+          provider,
+          board: slug,
+          access: authorizationRequired ? "AUTHORIZATION REQUIRED" : "UNAVAILABLE",
+          status: authorizationRequired ? "AUTH_REQUIRED" : rateLimited ? "RATE_LIMITED" : "ERROR",
+          lastCheckedAt: new Date().toISOString(),
+          error: error.message,
+        },
+      };
+    }
+  });
+
+  const statuses = boardResults.map((result) => result.status);
+  const candidates = boardResults.flatMap((result) => result.jobs)
+    .filter((job) => job && isInRequestedCountry(job.country, filters.country));
+  const matched = candidates
+    .filter((job) => matchesFilters(job, filters))
+    .map((job) => ({
+      ...job,
+      matchingExplanation: describeCampaignMatch(job, filters),
+    }))
+    .sort((left, right) => campaignRelevanceScore(right, filters) - campaignRelevanceScore(left, filters));
+  const unique = [];
+  const seen = new Set();
+  for (const job of matched) {
+    const keys = duplicateKeys(job);
+    if (keys.some((key) => seen.has(key))) continue;
+    keys.forEach((key) => seen.add(key));
+    unique.push(job);
+  }
+  return { opportunities: unique, sourceStatus: statuses };
+}
+
+async function verifyAtsJob({ provider, board, externalId }) {
+  if (typeof provider !== "string" || typeof board !== "string" || externalId == null) {
+    throw inputError("provider, board, and externalId are required.");
+  }
+  const normalizedProvider = provider.toUpperCase();
+  if (!DEFAULT_BOARDS[normalizedProvider]) throw inputError("Unsupported ATS provider.");
+  const safeBoard = validateBoardSlug(board, normalizedProvider);
+  const jobs = await fetchBoard(normalizedProvider, safeBoard);
+  const found = jobs.find((job) => String(job.id ?? job.jobId) === String(externalId));
+  if (!found) {
+    const error = new Error("The job is no longer available on the selected public ATS board.");
+    error.statusCode = 404;
+    throw error;
+  }
+  const company = getBoardCompany(normalizedProvider, safeBoard);
+  const opportunity = normalizeProviderJob(normalizedProvider, safeBoard, company, found);
+  if (!opportunity || !opportunity.country) {
+    throw inputError("The live job does not identify a supported US or UK location.");
+  }
+  return opportunity;
+}
+
+function normalizeBoards(provider, requestedBoards, onlyRequestedBoards = false) {
+  const defaults = DEFAULT_BOARDS[provider];
+  const custom = Array.isArray(requestedBoards)
+    ? requestedBoards.filter((entry) => entry && String(entry.provider).toUpperCase() === provider).map((entry) => entry.slug)
+    : [];
+  const base = onlyRequestedBoards ? [] : defaults;
+  const slugs = [...new Set([...base, ...custom].map((slug) => validateBoardSlug(slug, provider)))].slice(0, MAX_BOARDS_PER_PROVIDER);
+  return slugs.map((slug) => ({ slug, company: getBoardCompany(provider, slug) }));
+}
+
+function validateBoardSlug(value, provider) {
+  const raw = String(value || "").trim();
+  const slug = provider === "SMARTRECRUITERS" ? raw : raw.toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(slug)) {
+    if (provider !== "SMARTRECRUITERS" || !/^[A-Za-z0-9][A-Za-z0-9-]{0,79}$/.test(slug)) {
+      throw inputError("ATS board identifiers may contain only letters, numbers, and hyphens.");
+    }
+  }
+  return slug;
+}
+
+function getBoardCompany(provider, slug) {
+  const names = {
+    stripe: "Stripe",
+    cloudflare: "Cloudflare",
+    gitlab: "GitLab",
+    duolingo: "Duolingo",
+    datadog: "Datadog",
+    figma: "Figma",
+    coinbase: "Coinbase",
+    instacart: "Instacart",
+    mavenclinic: "Maven Clinic",
+    sweetgreen: "sweetgreen",
+    gusto: "Gusto",
+    chime: "Chime",
+    deliveroo: "Deliveroo",
+    monzo: "Monzo",
+    trustpilot: "Trustpilot",
+    sumup: "SumUp",
+    spotify: "Spotify",
+    ramp: "Ramp",
+    linear: "Linear",
+    notion: "Notion",
+    openai: "OpenAI",
+    Experian: "Experian",
+    RedBull: "Red Bull",
+    flexport: "Flexport",
+    toast: "Toast",
+    healthjoy: "HealthJoy",
+    chargepoint: "ChargePoint",
+    gymshark: "Gymshark",
+    tide: "Tide",
+    zopa: "Zopa",
+    synthesia: "Synthesia",
+    multiverse: "Multiverse",
+    gopuff: "Gopuff",
+    rula: "Rula",
+    higharc: "Higharc",
+    sondermind: "SonderMind",
+    doximity: "Doximity",
+    oscar: "Oscar Health",
+    talkspace: "Talkspace",
+    zocdoc: "Zocdoc",
+    elationhealth: "Elation Health",
+    modernhealth: "Modern Health",
+    buildops: "BuildOps",
+    formlabs: "Formlabs",
+    fictiv: "Fictiv",
+    redwoodmaterials: "Redwood Materials",
+    lucidmotors: "Lucid Motors",
+    brex: "Brex",
+    ripple: "Ripple",
+    robinhood: "Robinhood",
+    sofi: "SoFi",
+    affirm: "Affirm",
+    arcadia: "Arcadia",
+    palantir: "Palantir",
+    protolabs: "Protolabs",
+    headway: "Headway",
+    benchling: "Benchling",
+    plaid: "Plaid",
+    virtahealth: "Virta Health",
+    honeybook: "HoneyBook",
+    jobber: "Jobber",
+    snyk: "Snyk",
+    vanta: "Vanta",
+    whoop: "WHOOP",
+  };
+  return names[slug] || null;
+}
+
+function selectProviders(source) {
+  if (!source || ["BOTH", "ALL"].includes(String(source).toUpperCase())) return Object.keys(DEFAULT_BOARDS);
+  const provider = String(source).toUpperCase();
+  if (!DEFAULT_BOARDS[provider]) throw inputError("source must be GREENHOUSE, LEVER, ASHBY, SMARTRECRUITERS, or BOTH.");
+  return [provider];
+}
+
+async function fetchBoard(provider, board) {
+  const slug = validateBoardSlug(board, provider);
+  if (provider === "SMARTRECRUITERS") {
+    return fetchSmartRecruitersBoard(slug);
+  }
+  let endpoint;
+  if (provider === "GREENHOUSE") {
+    endpoint = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(slug)}/jobs?content=true`;
+  } else if (provider === "LEVER") {
+    endpoint = `https://api.lever.co/v0/postings/${encodeURIComponent(slug)}?mode=json`;
+  } else if (provider === "ASHBY") {
+    endpoint = `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(slug)}?includeCompensation=true`;
+  } else {
+    throw inputError("Unsupported ATS provider.");
+  }
+
+  const parsed = await fetchProviderJson(endpoint, provider);
+  const jobs = Array.isArray(parsed) ? parsed : parsed?.jobs;
+  if (!Array.isArray(jobs)) throw new Error("Provider response did not contain a jobs array.");
+  return jobs;
+}
+
+async function fetchSmartRecruitersBoard(company) {
+  const pages = [];
+  let totalFound = null;
+  for (let page = 0; page < SMARTRECRUITERS_MAX_PAGES; page += 1) {
+    const offset = page * SMARTRECRUITERS_PAGE_SIZE;
+    const endpoint = `https://api.smartrecruiters.com/v1/companies/${encodeURIComponent(company)}/postings?limit=${SMARTRECRUITERS_PAGE_SIZE}&offset=${offset}`;
+    const response = await fetchProviderJson(endpoint, "SMARTRECRUITERS");
+    if (!Array.isArray(response?.content)) {
+      throw new Error("SmartRecruiters response did not contain a content array.");
+    }
+    pages.push(...response.content);
+    totalFound = Number.isFinite(Number(response.totalFound)) ? Number(response.totalFound) : null;
+    if (!response.content.length || (totalFound !== null && pages.length >= totalFound)) break;
+  }
+  Object.defineProperty(pages, "totalFound", { value: totalFound, enumerable: false });
+  Object.defineProperty(pages, "truncated", { value: totalFound !== null && pages.length < totalFound, enumerable: false });
+  return pages;
+}
+
+async function fetchProviderJson(endpoint, provider) {
+  const url = new URL(endpoint);
+  const expectedHost = provider === "GREENHOUSE" ? "boards-api.greenhouse.io"
+    : provider === "LEVER" ? "api.lever.co"
+      : provider === "ASHBY" ? "api.ashbyhq.com"
+        : provider === "SMARTRECRUITERS" ? "api.smartrecruiters.com"
+          : null;
+  if (!expectedHost || url.protocol !== "https:" || url.hostname !== expectedHost || url.port) {
+    throw new Error("Refusing a provider request outside the fixed public ATS API host.");
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      redirect: "manual",
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "FusionStaffingRA/1.0 (+public ATS job board API)",
+      },
+    });
+    if (response.status >= 300 && response.status < 400) {
+      throw new Error("Provider API redirected; refusing to follow an unverified redirect.");
+    }
+    if (response.status === 401 || response.status === 403) {
+      const error = new Error("The provider requires authorization for this board.");
+      error.code = "AUTHORIZATION_REQUIRED";
+      throw error;
+    }
+    if (!response.ok) {
+      const error = new Error(`Provider returned HTTP ${response.status}.`);
+      error.statusCode = response.status;
+      throw error;
+    }
+    const body = await readLimitedBody(response);
+    try {
+      return JSON.parse(body);
+    } catch {
+      throw new Error("Provider returned invalid JSON.");
+    }
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error(`Provider timed out after ${REQUEST_TIMEOUT_MS / 1000} seconds.`);
+    if (error.code === "AUTHORIZATION_REQUIRED" || error.statusCode) throw error;
+    throw new Error(`Provider request failed: ${error.message}`);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readLimitedBody(response) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of response.body) {
+    total += chunk.length;
+    if (total > MAX_RESPONSE_BYTES) {
+      response.body.destroy();
+      throw new Error("Provider response exceeded the 16 MB safety limit.");
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function normalizeProviderJob(provider, board, configuredCompany, job) {
+  const data = provider === "GREENHOUSE"
+    ? normalizeGreenhouse(job, configuredCompany)
+    : provider === "LEVER"
+      ? normalizeLever(job, configuredCompany)
+      : provider === "ASHBY"
+        ? normalizeAshby(job, configuredCompany)
+        : normalizeSmartRecruiters(job, configuredCompany);
+  const country = inferCountry(data.country, data.location);
+  const sourceUrl = normalizeUrl(data.sourceUrl);
+  const title = String(data.jobTitle || "").trim();
+  const externalId = data.externalId == null ? null : String(data.externalId);
+  if (!externalId || !title || !sourceUrl || !["US", "UK"].includes(country)) return null;
+  const technicalRole = /\b(forward deployed engineer|integration engineer|solutions? architect|solutions? architecture|solutions? engineer|technical account manager|technical account management)\b/i.test(title);
+  const businessRole = /\b(recruiting manager|events manager|pricing strategist|people consultant|commercial associate|strategic alliances)\b/i.test(title);
+  const titleCategory = technicalRole ? "IT" : businessRole ? "Non-IT" : classifyCategory(title);
+  const departmentCategory = classifyCategory(data.department || "");
+  const inferredIndustry = inferIndustry(`${title} ${data.department || ""}`);
+  const nonItIndustry = inferredIndustry && !/\b(software|information technology|cybersecurity)\b/i.test(inferredIndustry);
+  const category = titleCategory !== "Unclassified"
+    ? titleCategory
+    : departmentCategory !== "Unclassified"
+      ? departmentCategory
+      : nonItIndustry ? "Non-IT" : "Unclassified";
+  const salary = normalizeSalary(data.salary);
+  const salaryDetails = parseSalaryDetails(salary);
+  const industry = inferIndustry(`${title} ${data.department || ""}`);
+  const raw = {
+    sourceProvider: provider,
+    sourceBoard: board,
+    sourceProviderJobId: externalId,
+    sourceAccess: "LIVE API",
+    city: getCity(data.location),
+    category,
+    salary,
+    salaryText: data.salary || null,
+    salaryCurrency: salaryDetails.currency,
+    salaryPeriod: salaryDetails.period,
+    employmentType: data.employmentType || null,
+    lastVerifiedAt: new Date().toISOString(),
+    providerDepartment: data.department || null,
+    industry,
+  };
+  const normalized = normalizeOpportunity({
+    source: provider,
+    externalId,
+    sourceUrl,
+    companyName: data.companyName || configuredCompany,
+    companyWebsite: data.companyWebsite,
+    jobTitle: title,
+    country,
+    location: data.location,
+    description: data.description,
+    skills: [],
+    employmentType: data.employmentType,
+    postedAt: data.postedAt,
+    discoveredAt: new Date().toISOString(),
+    status: "NEW",
+    rawData: raw,
+  });
+  return {
+    ...normalized,
+    category,
+    city: raw.city,
+    salary,
+    salaryText: raw.salaryText,
+    salaryCurrency: salaryDetails.currency,
+    salaryPeriod: salaryDetails.period,
+    industry,
+    sourceProvider: provider,
+    sourceBoard: board,
+    sourceAccess: "LIVE API",
+    lastVerifiedAt: raw.lastVerifiedAt,
+    providerDepartment: raw.providerDepartment,
+  };
+}
+
+function normalizeGreenhouse(job, configuredCompany) {
+  return {
+    externalId: job.id,
+    sourceUrl: job.absolute_url,
+    companyName: job.company_name || configuredCompany,
+    companyWebsite: null,
+    jobTitle: job.title,
+    country: null,
+    location: job.location?.name || null,
+    description: stripHtml(job.content || ""),
+    employmentType: job.metadata?.find((entry) => /employment type/i.test(entry.name || ""))?.value || null,
+    postedAt: job.first_published || null,
+    department: Array.isArray(job.departments) ? job.departments.map((entry) => entry.name).filter(Boolean).join(", ") : null,
+    salary: extractSalary(job.content || ""),
+  };
+}
+
+function normalizeLever(job, configuredCompany) {
+  return {
+    externalId: job.id,
+    sourceUrl: job.hostedUrl || job.applyUrl,
+    companyName: job.company || configuredCompany,
+    companyWebsite: null,
+    jobTitle: job.text,
+    country: job.categories?.country || null,
+    location: job.categories?.allLocations?.join(", ") || job.categories?.location || null,
+    description: stripHtml(job.descriptionPlain || job.description || ""),
+    employmentType: job.categories?.commitment || job.workplaceType || null,
+    postedAt: job.createdAt ? new Date(job.createdAt).toISOString() : null,
+    department: job.categories?.department || null,
+    salary: job.salaryDescription || null,
+  };
+}
+
+function normalizeAshby(job, configuredCompany) {
+  return {
+    externalId: job.jobId || job.id,
+    sourceUrl: job.jobUrl || job.applyUrl,
+    companyName: job.companyName || configuredCompany,
+    companyWebsite: null,
+    jobTitle: job.title,
+    country: job.address?.postalAddress?.addressCountry || job.address?.country || null,
+    location: [job.location, ...(job.secondaryLocations || []).map(locationText)].filter(Boolean).join(", "),
+    description: stripHtml(job.descriptionPlain || job.descriptionHtml || ""),
+    employmentType: job.employmentType || null,
+    postedAt: job.publishedAt || null,
+    department: job.department || job.team || null,
+    salary: formatAshbyCompensation(job.compensation),
+  };
+}
+
+function normalizeSmartRecruiters(job, configuredCompany) {
+  const location = job.location || {};
+  const countryCode = String(location.country || "").toLowerCase();
+  const country = countryCode === "us" ? "US" : countryCode === "gb" ? "UK" : null;
+  const identifier = job.company?.identifier || configuredCompany;
+  const jobId = job.id || job.uuid;
+  const name = String(job.name || "").trim();
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const canonicalUrl = identifier && jobId
+    ? `https://jobs.smartrecruiters.com/${encodeURIComponent(identifier)}/${encodeURIComponent(jobId)}${slug ? `-${slug}` : ""}`
+    : null;
+  return {
+    externalId: jobId,
+    sourceUrl: canonicalUrl,
+    companyName: job.company?.name || configuredCompany,
+    companyWebsite: null,
+    jobTitle: name,
+    country,
+    location: location.fullLocation || [location.city, location.region, location.country].filter(Boolean).join(", ") || null,
+    description: stripHtml(job.jobAd?.sections?.jobDescription?.text || job.description || ""),
+    employmentType: job.typeOfEmployment?.label || job.typeOfEmployment?.name || null,
+    postedAt: job.releasedDate || null,
+    department: job.department?.label || job.department?.name || null,
+    salary: null,
+  };
+}
+
+function parseSearchUrl(value) {
+  if (typeof value !== "string" || value.length > 2048) {
+    throw inputError("Enter a public job search URL or company careers URL no longer than 2048 characters.");
+  }
+  let url;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw inputError("Enter a valid absolute HTTP or HTTPS URL.");
+  }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.port) {
+    throw inputError("Only public HTTP or HTTPS URLs without credentials or custom ports are supported.");
+  }
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (net.isIP(host) || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) {
+    throw inputError("Private and local host URLs are not allowed.");
+  }
+  const labels = host.split(".");
+  if (labels.length < 2 || labels.some((label) => !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))) {
+    throw inputError("Enter a public DNS hostname.");
+  }
+
+  const result = {
+    originalUrl: url.toString(),
+    provider: "DIRECT_CAREERS",
+    access: "MANUAL LINK",
+    isIndividualJob: false,
+    board: null,
+    externalId: null,
+    title: "",
+    keywords: "",
+    company: "",
+    country: null,
+    location: "",
+  };
+  const params = url.searchParams;
+  const getParam = (...keys) => keys.map((key) => params.get(key)).find(Boolean) || "";
+  const classifyQuery = () => {
+    result.keywords = getParam("q", "query", "keywords", "keyword", "search", "searchTerm");
+    result.location = getParam("l", "location", "where", "city");
+    const context = `${host} ${url.pathname} ${result.location} ${params.get("country") || ""}`.toLowerCase();
+    result.country = inferCountry("", context)
+      || (host.startsWith("uk.") || host.endsWith(".co.uk") || host.endsWith(".uk") ? "UK" : null)
+      || (host === "indeed.com" || host.endsWith(".indeed.com") ? "US" : null);
+  };
+
+  if (host === "boards.greenhouse.io" || host === "job-boards.greenhouse.io") {
+    result.provider = "GREENHOUSE";
+    result.access = "LIVE API";
+    result.board = url.pathname.split("/").filter(Boolean)[0] || null;
+    const jobIndex = url.pathname.split("/").indexOf("jobs");
+    if (jobIndex >= 0 && url.pathname.split("/")[jobIndex + 1]) {
+      result.isIndividualJob = true;
+      result.externalId = url.pathname.split("/")[jobIndex + 1].split("-")[0];
+    }
+  } else if (host === "jobs.lever.co") {
+    result.provider = "LEVER";
+    result.access = "LIVE API";
+    result.board = url.pathname.split("/").filter(Boolean)[0] || null;
+    result.externalId = url.pathname.split("/").filter(Boolean)[1] || null;
+    result.isIndividualJob = Boolean(result.externalId);
+  } else if (host === "jobs.ashbyhq.com") {
+    result.provider = "ASHBY";
+    result.access = "LIVE API";
+    result.board = url.pathname.split("/").filter(Boolean)[0] || null;
+    result.externalId = url.pathname.split("/").filter(Boolean)[1] || null;
+    result.isIndividualJob = Boolean(result.externalId);
+  } else if (host === "jobs.smartrecruiters.com" || host === "careers.smartrecruiters.com") {
+    result.provider = "SMARTRECRUITERS";
+    result.access = "LIVE API";
+    result.board = url.pathname.split("/").filter(Boolean)[0] || null;
+    const jobPart = url.pathname.split("/").filter(Boolean)[1] || "";
+    result.externalId = jobPart.match(/^\d+/)?.[0] || null;
+    result.isIndividualJob = Boolean(result.externalId);
+  } else if (host === "indeed.com" || host.endsWith(".indeed.com") || host === "indeed.co.uk" || host.endsWith(".indeed.co.uk")) {
+    result.provider = "INDEED";
+    result.access = "AUTHORIZATION REQUIRED";
+    result.isIndividualJob = url.pathname.toLowerCase().includes("viewjob") || params.has("jk");
+    classifyQuery();
+  } else if (host === "linkedin.com" || host.endsWith(".linkedin.com")) {
+    result.provider = "LINKEDIN";
+    result.access = "AUTHORIZATION REQUIRED";
+    result.isIndividualJob = url.pathname.toLowerCase().includes("/jobs/view/");
+    classifyQuery();
+    if (!result.keywords && result.isIndividualJob) {
+      const titlePart = url.pathname.split("/").filter(Boolean).at(-1)?.replace(/-\d+$/, "").replace(/-/g, " ");
+      result.title = titlePart || "";
+    }
+  } else if (host === "dice.com" || host.endsWith(".dice.com")) {
+    result.provider = "DICE";
+    result.access = "AUTHORIZATION REQUIRED";
+    result.isIndividualJob = /\/jobs\/detail\//i.test(url.pathname);
+    classifyQuery();
+  } else if (host === "reed.co.uk" || host.endsWith(".reed.co.uk")) {
+    result.provider = "REED";
+    result.access = "AUTHORIZATION REQUIRED";
+    result.isIndividualJob = /\/jobs\/[^/]+\/\d+/i.test(url.pathname);
+    classifyQuery();
+    result.country = "UK";
+  } else if (host === "totaljobs.com" || host.endsWith(".totaljobs.com")) {
+    result.provider = "TOTALJOBS";
+    result.access = "AUTHORIZATION REQUIRED";
+    result.isIndividualJob = /\/job\//i.test(url.pathname);
+    classifyQuery();
+    result.country = "UK";
+  } else if (host === "glassdoor.com" || host.endsWith(".glassdoor.com") || host === "glassdoor.co.uk" || host.endsWith(".glassdoor.co.uk")) {
+    result.provider = "GLASSDOOR";
+    result.access = "AUTHORIZATION REQUIRED";
+    result.isIndividualJob = /\/job-listing\//i.test(url.pathname);
+    classifyQuery();
+  } else if (host === "ziprecruiter.com" || host.endsWith(".ziprecruiter.com")) {
+    result.provider = "ZIPRECRUITER";
+    result.access = "AUTHORIZATION REQUIRED";
+    result.isIndividualJob = /\/jobs\//i.test(url.pathname);
+    classifyQuery();
+  } else {
+    const slug = url.pathname.split("/").filter(Boolean)[0];
+    const hostBoards = {
+      "boards.greenhouse.io": ["GREENHOUSE", slug],
+      "job-boards.greenhouse.io": ["GREENHOUSE", slug],
+      "jobs.lever.co": ["LEVER", slug],
+      "jobs.ashbyhq.com": ["ASHBY", slug],
+      "jobs.smartrecruiters.com": ["SMARTRECRUITERS", slug],
+      "careers.smartrecruiters.com": ["SMARTRECRUITERS", slug],
+    };
+    const known = hostBoards[host];
+    if (known) {
+      [result.provider, result.board] = known;
+      result.access = "LIVE API";
+    }
+  }
+
+  if (!result.isIndividualJob && !result.keywords) {
+    result.keywords = getParam("q", "query", "keywords", "keyword", "search", "searchTerm");
+  }
+  if (!result.location) result.location = getParam("l", "location", "where", "city");
+  if (!result.country) {
+    const locationContext = `${result.location} ${params.get("country") || ""} ${params.get("location") || ""}`;
+    result.country = inferCountry("", locationContext)
+      || (host.startsWith("uk.") || host.endsWith(".co.uk") || host.endsWith(".uk") ? "UK" : null)
+      || (host === "indeed.com" || host.endsWith(".indeed.com") ? "US" : null);
+  }
+  if (!result.title) {
+    const phrase = `${result.keywords || ""} ${url.pathname}`;
+    const match = phrase.match(/\b(software|backend|frontend|full[\s-]?stack|data|machine learning|cybersecurity|devops|nurse|nursing|sales|marketing|warehouse|construction|finance|accounting|healthcare|logistics)\b/i);
+    result.title = match?.[0] || "";
+  }
+  const companyParam = getParam("company", "employer");
+  if (companyParam) result.company = companyParam;
+  return result;
+}
+
+function sanitizeSearchUrl(value) {
+  return parseSearchUrl(value);
+}
+
+function validatePublicSearchUrl(value) {
+  return sanitizeSearchUrl(value);
+}
+
+async function searchFromUrl(input) {
+  const parsed = sanitizeSearchUrl(input.url);
+  const country = parsed.country || input.country || "BOTH";
+  const connectedAts = Object.hasOwn(DEFAULT_BOARDS, parsed.provider);
+  const recognizedAtsBoard = connectedAts && parsed.board
+    && /^[A-Za-z0-9][A-Za-z0-9-]{0,79}$/.test(parsed.board);
+  const statusBase = {
+    ...parsed,
+    mode: recognizedAtsBoard ? "LIVE_API" : "AUTHORIZED_FALLBACK",
+    resultSource: recognizedAtsBoard ? parsed.provider : null,
+    lastSuccessfulRefresh: null,
+  };
+  if (parsed.provider !== "DIRECT_CAREERS" && !connectedAts && parsed.access !== "AUTHORIZATION REQUIRED") {
+    statusBase.access = "MANUAL LINK";
+  }
+
+  let result;
+  if (recognizedAtsBoard) {
+    result = await discoverAtsJobs({
+      source: parsed.provider,
+      country,
+      category: input.category || "BOTH",
+      title: parsed.title || undefined,
+      keywords: parsed.keywords ? [parsed.keywords] : [],
+      company: parsed.company || undefined,
+      location: parsed.location || undefined,
+      boards: [{ provider: parsed.provider, slug: parsed.board }],
+      onlyRequestedBoards: true,
+    });
+    if (parsed.isIndividualJob && parsed.externalId) {
+      result.opportunities = result.opportunities.filter((job) => String(job.externalId) === parsed.externalId);
+    }
+    const connected = result.sourceStatus.some((item) => item.status === "CONNECTED");
+    statusBase.mode = connected ? "LIVE_API" : "FETCH_FAILED";
+    statusBase.resultSource = connected ? parsed.provider : null;
+    statusBase.lastSuccessfulRefresh = connected ? new Date().toISOString() : null;
+    if (parsed.isIndividualJob && !result.opportunities.length) {
+      statusBase.mode = "MANUAL_LINK";
+      statusBase.access = "MANUAL LINK";
+      statusBase.manualReviewRequired = true;
+    }
+  } else {
+    const fallbackFilters = {
+      country,
+      category: input.category || "BOTH",
+      title: parsed.title || undefined,
+      keywords: parsed.keywords ? [parsed.keywords] : [],
+      company: parsed.company || undefined,
+      location: parsed.location || undefined,
+      source: "BOTH",
+    };
+    result = await discoverAtsJobs(fallbackFilters);
+    statusBase.mode = result.sourceStatus.some((item) => item.status === "CONNECTED")
+      ? parsed.access === "AUTHORIZATION REQUIRED" ? "AUTHORIZED_FALLBACK" : "MANUAL_LINK_FALLBACK"
+      : "FETCH_FAILED";
+    statusBase.resultSource = result.sourceStatus.some((item) => item.status === "CONNECTED") ? "PUBLIC_ATS" : null;
+    statusBase.lastSuccessfulRefresh = statusBase.resultSource ? new Date().toISOString() : null;
+    statusBase.manualReviewRequired = parsed.isIndividualJob;
+    if (parsed.isIndividualJob) statusBase.mode = "MANUAL_LINK";
+  }
+
+  return {
+    sourceStatus: result.sourceStatus.some((source) => source.status === "CONNECTED") ? "LIVE_API" : "UNAVAILABLE",
+    urlResolution: statusBase,
+    providerStatus: result.sourceStatus,
+    opportunities: result.opportunities,
+    searchFilters: {
+      country,
+      category: input.category || "BOTH",
+      title: parsed.title,
+      keywords: parsed.keywords,
+      company: parsed.company,
+      location: parsed.location,
+    },
+  };
+}
+
+function inferCountry(explicitCountry, location) {
+  const explicit = String(explicitCountry || "").trim().toLowerCase();
+  if (/\b(united states|united states of america|usa|u\.s\.a?\.?|us)\b/.test(explicit)) return "US";
+  if (/\b(united kingdom|great britain|uk|u\.k\.|england|scotland|wales|northern ireland)\b/.test(explicit)) return "UK";
+  const text = String(location || "").toLowerCase();
+  if (/\b(united states|united states of america|usa|u\.s\.a?\.?|us)\b/.test(text)) return "US";
+  if (/\b(united kingdom|great britain|uk|u\.k\.|england|scotland|wales|northern ireland)\b/.test(text)) return "UK";
+  if (/\b(california|new york|texas|washington|florida|massachusetts|illinois|colorado|georgia|virginia|oregon|arizona|pennsylvania|north carolina|south carolina|michigan|minnesota|utah|maryland|new jersey|connecticut|tennessee|ohio|wisconsin|nevada|hawaii|alaska)\b/.test(text)) return "US";
+  if (/(,\s*(ca|ny|tx|wa|fl|ma|il|co|ga|va|or|az|pa|nc|sc|mi|mn|ut|md|nj|ct|tn|oh|wi|nv|hi|ak)\b)/i.test(text)) return "US";
+  if (/\b(san francisco|new york city|new york|seattle|austin|boston|chicago|los angeles|san jose|denver|atlanta|miami|dallas|houston|portland|philadelphia|washington dc|washington, dc|raleigh|pittsburgh|detroit|minneapolis|salt lake city|phoenix|san diego|sacramento|tampa|orlando|charlotte|nashville|las vegas|baltimore|cleveland|columbus|madison|kansas city)\b/.test(text)) return "US";
+  if (/\b(london|manchester|birmingham|leeds|bristol|edinburgh|glasgow|cambridge|oxford|liverpool|cardiff|belfast|sheffield|nottingham|newcastle|southampton|reading|brighton|bath|york|coventry|leicester|aberdeen|dundee|swansea|portsmouth|plymouth|milton keynes|luton|warrington|stoke-on-trent|derby|norwich|exeter|inverness)\b/.test(text)) return "UK";
+  return null;
+}
+
+function locationText(value) {
+  if (typeof value === "string") return value.trim();
+  if (!value || typeof value !== "object") return "";
+  if (typeof value.location === "string") return value.location.trim();
+  if (typeof value.name === "string") return value.name.trim();
+  const postalAddress = value.address?.postalAddress || value.postalAddress;
+  return [
+    postalAddress?.addressLocality,
+    postalAddress?.addressRegion,
+    postalAddress?.addressCountry,
+  ].filter((part) => typeof part === "string" && part.trim()).join(", ");
+}
+
+function classifyCategory(text) {
+  const value = String(text || "").toLowerCase();
+  const it = /\b(software|backend|back-end|frontend|front-end|full[\s-]?stack|web developer|mobile developer|artificial intelligence|machine learning|ai\s+(solutions|engineer|scientist|researcher|developer|architect)|ml\s+(engineer|scientist|researcher|developer|architect)|data engineer|data scientist|data analyst|cybersecurity|security engineer|devops|cloud engineer|it support|quality assurance|\bqa\b|network engineer|networking|it project manager|technical program manager|infrastructure engineer|systems administrator|site reliability|\bsre\b|database administrator|technical support engineer)\b/.test(value);
+  const nonIt = /\b(construction|manufactur|cnc|warehouse|logistics|healthcare|nurs(e|ing)|pharma|clinical|physician|doctor|medical assistant|banking|finance|accounting|sales|marketing|human resources|\bhr\b|administrat|retail|hospitality|restaurant|chef|barista|transport|driver|maintenance|skilled trad|accountant|recruiter|customer support|customer service|operations|business development|legal|compliance|designer|design director|account executive|account manager|channel manager|mechanical engineer|civil engineer|electrical engineer|field service engineer|process engineer|store manager|hotel)\b/.test(value);
+  const additionalIt = /\b(android engineer|ios engineer|mobile engineer|security analytics|security research|engineering manager|platform engineer|application engineer|site reliability engineer)\b/.test(value);
+  const additionalNonIt = /\b(customer success|credit risk|underwriter|benefits program|brand producer|commercial lead|business value consultant|communications|community manager|partner development|deal strategist|engagement manager)\b/.test(value);
+  if ((it || additionalIt) && (nonIt || additionalNonIt)) return "Both";
+  if (additionalIt) return "IT";
+  if (additionalNonIt) return "Non-IT";  if (it && nonIt) return "Both";
+  if (it) return "IT";
+  if (nonIt) return "Non-IT";
+  return "Unclassified";
+}
+
+function matchesFilters(job, filters) {
+  const category = String(filters.category || "BOTH").toUpperCase();
+
+  if (category === "IT" && job.category !== "IT" && job.category !== "Both") return false;
+  if (category === "NON-IT" && job.category !== "Non-IT" && job.category !== "Both") return false;
+  const title = normalizeSearchText(job.jobTitle);
+  const text = normalizeSearchText(
+    `${job.jobTitle} ${job.description || ""} ${job.companyName || ""} ${job.location || ""} ${job.providerDepartment || ""}`
+  );
+  const titleAndDepartment = normalizeSearchText(`${job.jobTitle} ${job.providerDepartment || ""}`);
+  if (filters.title && !title.includes(normalizeSearchText(filters.title))) return false;
+
+  const campaignRoles = Array.isArray(filters.roles) ? filters.roles : [];
+  const campaignIndustries = Array.isArray(filters.industries) ? filters.industries : [];
+  const campaignKeywords = Array.isArray(filters.keywords) ? filters.keywords : [];
+  const roleMatch = campaignRoles.some((role) =>
+    campaignRoleMatches(title, role)
+  );
+  const industryMatch = campaignIndustries.some((industry) =>
+    (includesSearchPhrase(titleAndDepartment, industry) || includesSearchPhrase(normalizeSearchText(job.industry), industry) || includesSearchPhrase(normalizeSearchText(industry), job.industry))
+  );
+  const keywordMatch = campaignKeywords.some((keyword) =>
+    includesSearchPhrase(titleAndDepartment, keyword)
+  );
+  const keywordDescriptionMatch = campaignKeywords.some((keyword) =>
+    includesSearchPhrase(text, keyword)
+  );
+
+  const campaignLocations = Array.isArray(filters.locations) ? filters.locations : [];
+  if (
+    campaignLocations.length &&
+    job.location &&
+    !campaignLocations.some((location) => locationMatches(job.location, location))
+  ) return false;
+
+  if (campaignRoles.length) {
+    if (!roleMatch) return false;
+  } else if (campaignIndustries.length || campaignKeywords.length) {
+    if (!industryMatch && !keywordMatch && !keywordDescriptionMatch) return false;
+  }
+
+  if (filters.company && !normalizeSearchText(job.companyName).includes(normalizeSearchText(filters.company))) return false;
+  if (
+    filters.location &&
+    job.location &&
+    !locationMatches(job.location, filters.location)
+  ) return false;
+
+  const employmentTypes = Array.isArray(filters.employmentTypes) ? filters.employmentTypes : [];
+  if (
+    employmentTypes.length &&
+    job.employmentType &&
+    !employmentTypes.some((type) => employmentTypeMatches(job.employmentType, type))
+  ) return false;
+
+  if ((filters.after || filters.before) && !job.postedAt) return false;
+  const postedDate = job.postedAt ? new Date(job.postedAt).toISOString().slice(0, 10) : null;
+  if (filters.after && postedDate < filters.after) return false;
+  if (filters.before && postedDate > filters.before) return false;
+  return true;
+}
+
+function normalizeSearchText(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function includesSearchPhrase(text, value) {
+  const phrase = normalizeSearchText(value);
+  return phrase ? ` ${text} `.includes(` ${phrase} `) : false;
+}
+
+function campaignRoleMatches(title, role) {
+  const roleText = normalizeSearchText(role);
+  if (!roleText || !title) return false;
+  if (includesSearchPhrase(title, roleText)) return true;
+  const roleFamily = ROLE_TITLE_FAMILIES.find((family) => family.roles.includes(roleText));
+  if (roleFamily?.titles.some((phrase) => includesSearchPhrase(title, phrase))) return true;
+  if (
+    roleFamily?.requiresHealthcareContext &&
+    includesSearchPhrase(title, "territory sales representative") &&
+    /\b(medical|healthcare|pharmaceutical|pharma|oncology|clinical)\b/.test(title)
+  ) return true;
+
+  const canonicalize = (token) => ["representative", "representatives", "rep", "reps"].includes(token)
+    ? "rep"
+    : token;
+  const ignored = new Set(["a", "an", "and", "of", "the"]);
+  const roleTokens = roleText.split(" ").map(canonicalize).filter((token) => !ignored.has(token));
+  const titleTokens = title.split(" ").map(canonicalize).filter((token) => !ignored.has(token));
+  return roleTokens.length > 0 && containsTokenSequence(titleTokens, roleTokens);
+}
+
+function containsTokenSequence(textTokens, queryTokens) {
+  for (let start = 0; start <= textTokens.length - queryTokens.length; start += 1) {
+    if (queryTokens.every((token, index) => textTokens[start + index] === token)) return true;
+  }
+  return false;
+}
+
+const ROLE_TITLE_FAMILIES = [
+  {
+    roles: ["manufacturing technician", "production technician", "manufacturing associate", "production operator"],
+    titles: ["manufacturing technician", "production technician", "manufacturing associate", "production operator", "manufacturing operator"],
+  },
+  {
+    roles: ["medical sales representative", "medical representative", "pharmaceutical sales representative", "healthcare sales representative", "healthcare sales specialist"],
+    titles: ["medical sales representative", "medical sales rep", "medical representative", "medical rep", "pharmaceutical sales representative", "pharma sales representative", "pharma sales rep", "healthcare sales representative", "healthcare sales rep", "healthcare sales specialist"],
+    requiresHealthcareContext: true,
+  },
+];
+
+function describeCampaignMatch(job, filters) {
+  const detail = normalizeSearchText(
+    `${job.jobTitle} ${job.description || ""} ${job.providerDepartment || ""}`
+  );
+  const reasons = [];
+  const matchedRole = (filters.roles || []).find((role) =>
+    campaignRoleMatches(normalizeSearchText(job.jobTitle), role)
+  );
+  if (matchedRole) reasons.push(`Role match: ${matchedRole}`);
+  const matchedIndustry = (filters.industries || []).find((industry) =>
+    includesSearchPhrase(detail, industry)
+  );
+  if (matchedIndustry) reasons.push(`Industry signal: ${matchedIndustry}`);
+  const matchedKeyword = (filters.keywords || []).find((keyword) =>
+    includesSearchPhrase(detail, keyword)
+  );
+  if (matchedKeyword) reasons.push(`Keyword signal: ${matchedKeyword}`);
+  const matchedLocation = (filters.locations || []).find((location) =>
+    job.location && locationMatches(job.location, location)
+  );
+  if (matchedLocation) reasons.push(`Location match: ${matchedLocation}`);
+  return reasons.join("; ") || "Matched the selected campaign filters.";
+}
+
+function campaignRelevanceScore(job, filters) {
+  const title = normalizeSearchText(job.jobTitle);
+  const fullText = normalizeSearchText(
+    `${job.jobTitle} ${job.description || ""} ${job.providerDepartment || ""}`
+  );
+  const roles = Array.isArray(filters.roles) ? filters.roles : [];
+  const industries = Array.isArray(filters.industries) ? filters.industries : [];
+  const keywords = Array.isArray(filters.keywords) ? filters.keywords : [];
+  let score = roles.some((role) => campaignRoleMatches(title, role)) ? 8 : 0;
+  if (industries.some((industry) => includesSearchPhrase(fullText, industry))) score += 4;
+  if (keywords.some((keyword) => includesSearchPhrase(fullText, keyword))) score += 2;
+  if (filters.locations?.some((location) => job.location && locationMatches(job.location, location))) score += 1;
+  if (filters.employmentTypes?.some((type) => job.employmentType && employmentTypeMatches(job.employmentType, type))) score += 1;
+  return score;
+}
+
+function locationMatches(jobLocation, requestedLocation) {
+  const location = normalizeSearchText(jobLocation);
+  const requested = normalizeSearchText(requestedLocation);
+  if (!location || !requested) return false;
+  if (location.includes(requested)) return true;
+
+  const stateCodes = {
+    "new jersey": ["nj", "jersey city", "newark"],
+    "new york": ["ny", "nyc", "buffalo"],
+  };
+  const aliases = stateCodes[requested] || [];
+  return aliases.some((alias) => new RegExp(`\\b${alias}\\b`, "i").test(location));
+}
+
+function employmentTypeMatches(jobType, requestedType) {
+  const normalizeType = (value) => normalizeSearchText(value).replace(/\s+/g, "");
+  const actual = normalizeType(jobType);
+  const requested = normalizeType(requestedType);
+  if (actual === requested) return true;
+  const aliases = {
+    fulltime: ["fulltime", "permanent"],
+    parttime: ["parttime"],
+    contract: ["contract", "temporary", "fixedterm"],
+    temporary: ["temporary", "contract", "fixedterm"],
+    internship: ["internship", "intern"],
+  };
+  return (aliases[requested] || [requested]).includes(actual);
+}
+
+function isInRequestedCountry(country, requested) {
+  if (requested === "BOTH" || !requested) return ["US", "UK"].includes(country);
+  return country === requested;
+}
+
+function duplicateKeys(job) {
+  const url = normalizeUrl(job.sourceUrl);
+  const keys = [];
+  if (url) keys.push(`url:${url.toLowerCase()}`);
+  if (job.companyName && job.jobTitle && job.location) {
+    const identity = [job.companyName, job.jobTitle, job.location]
+      .map((value) => String(value).trim().toLowerCase().replace(/\s+/g, " "));
+    keys.push(`job:${identity.join("|")}`);
+  }
+  return keys;
+}
+
+function stripHtml(value) {
+  return String(value || "").replace(/<[^>]*>/g, " ").replace(/&nbsp;|&#160;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'").replace(/\s+/g, " ").trim().slice(0, 20000);
+}
+
+function extractSalary(value) {
+  const plain = stripHtml(value);
+  const match = plain.match(/(?:\$|£|USD\s?|GBP\s?)[\d,.]+(?:\s?[-–]\s?(?:\$|£|USD\s?|GBP\s?)[\d,.]+)?(?:\s?(?:per year|\/year|annually|per hour|\/hour))?/i);
+  return match?.[0] || null;
+}
+
+function formatAshbyCompensation(value) {
+  if (!value) return null;
+  if (typeof value === "string") return value;
+  if (typeof value !== "object") return null;
+  const min = value.minValue ?? value.min;
+  const max = value.maxValue ?? value.max;
+  const currency = value.currency || "";
+  if (min == null && max == null) return null;
+  const range = min != null && max != null ? `${min}–${max}` : String(min ?? max);
+  return `${currency} ${range}`.trim();
+}
+
+function normalizeSalary(value) {
+  if (!value) return null;
+  return String(value).trim().slice(0, 300) || null;
+}
+
+function parseSalaryDetails(value) {
+  const text = String(value || "");
+  const currencyMatch = text.match(/\b(USD|GBP|EUR|CAD|AUD)\b/i);
+  const currency = currencyMatch
+    ? currencyMatch[1].toUpperCase()
+    : text.includes("£") ? "GBP" : text.includes("$") ? "USD" : null;
+  const periodMatch = text.match(/\b(hourly|per hour|\/\s*hour|per annum|per year|annually|annual|\/\s*year|monthly|per month|\/\s*month|weekly|per week|\/\s*week|daily|per day|\/\s*day)\b/i);
+  const periodText = periodMatch?.[1]?.toLowerCase() || "";
+  const period = /hour/.test(periodText) ? "hour"
+    : /year|annum|annual/.test(periodText) ? "year"
+      : /month/.test(periodText) ? "month"
+        : /week/.test(periodText) ? "week"
+          : /day/.test(periodText) ? "day"
+            : null;
+  return { currency, period };
+}
+
+function inferIndustry(value) {
+  const text = normalizeSearchText(value);
+  const industries = [
+    ["Manufacturing and Production", /\b(manufacturing|production|machinist|assembly|industrial plant)\b/],
+    ["Construction and Civil Engineering", /\b(construction|civil engineering|building site)\b/],
+    ["Healthcare and Medical", /\b(healthcare|medical|nursing|nurse|clinical|hospital|patient care)\b/],
+    ["Pharmaceutical", /\b(pharmaceutical|pharma|drug development)\b/],
+    ["Logistics and Supply Chain", /\b(logistics|supply chain|distribution|freight)\b/],
+    ["Warehousing", /\b(warehouse|warehousing|fulfillment|fulfilment)\b/],
+    ["Retail and Hospitality", /\b(retail|hospitality|restaurant|hotel|store manager)\b/],
+    ["Banking, Finance and Accounting", /\b(banking|finance|financial|accounting|accountant|audit)\b/],
+    ["Human Resources and Administration", /\b(human resources|people operations|hr manager|administrative assistant|office administrator)\b/],
+    ["Sales and Business Development", /\b(sales|business development|account executive|account manager|territory representative)\b/],
+    ["Customer Service", /\b(customer service|customer support|call center|contact centre)\b/],
+    ["Automotive and Industrial Engineering", /\b(automotive|mechanical engineer|industrial engineer|vehicle technician)\b/],
+    ["Energy and Utilities", /\b(energy|utilities|electric utility|renewable power)\b/],
+    ["Food Production", /\b(food production|food manufacturing|food processing|food safety)\b/],
+    ["Facilities Management", /\b(facilities management|facilities manager|building maintenance)\b/],
+  ];
+  return industries.find(([, pattern]) => pattern.test(text))?.[0] || null;
+}
+
+function getCity(location) {
+  if (!location) return null;
+  const firstLocation = String(location).split(/[•,]/)[0].trim();
+  if (!firstLocation || /\b(remote|worldwide|global|anywhere|united states|united kingdom|usa|uk)\b/i.test(firstLocation)) {
+    return null;
+  }
+  return firstLocation.slice(0, 120);
+}
+
+function inputError(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
+}
+
+module.exports = {
+  DEFAULT_BOARDS,
+  SOURCE_ACCESS,
+  discoverAtsJobs,
+  searchFromUrl,
+  validatePublicSearchUrl,
+  verifyAtsJob,
+  normalizeProviderJob,
+  inferCountry,
+  classifyCategory,
+  matchesFilters,
+};
