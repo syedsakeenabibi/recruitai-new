@@ -14,6 +14,7 @@ export default function FusionHome({
   onAbout,
   onTerms,
   onContact,
+    onAdmin,
 }) {
 
 const industries = [
@@ -84,7 +85,7 @@ const services = [
   return (
  <div className="sakevra-site">
   {/* NAVIGATION */}
- <FusionNavbar
+<FusionNavbar
   onHome={onHome}
   onJobs={onJobs}
   onCandidates={onCandidates}
@@ -95,9 +96,9 @@ const services = [
   onTerms={onTerms}
   onContact={onContact}
   onJoinTalent={onJoinTalent}
+  onAdmin={onAdmin}
 />
-
-     <main>
+<main>
         {/* HERO */}
         <section className="sakevra-hero" id="home">
           <div className="sakevra-hero-glow glow-one" />
@@ -728,7 +729,7 @@ const services = [
               </span>
 
               <h2>
-               Human expertise behind 
+               Human expertise behind
                 <br />
                 <em>every hire..</em>
               </h2>
@@ -830,7 +831,7 @@ const services = [
               </a>
             </div>
           </div>
-          
+
         </section>
       </main>
 

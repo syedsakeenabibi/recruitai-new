@@ -1,6 +1,14 @@
-import React from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import FusionNavbar from "./FusionNavbar";
 import "./FusionWebsite.css";
+
+const JOBS_PER_PAGE = 4;
+
+function formatPostedDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString();
+}
 
 export default function FindJobsPage({
   onHome,
@@ -13,6 +21,102 @@ export default function FindJobsPage({
   onContact,
   onJoinTalent,
 }) {
+  const [jobs, setJobs] = useState([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [jobsError, setJobsError] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [country, setCountry] = useState("ALL");
+  const [category, setCategory] = useState("ALL");
+  const [locationQuery, setLocationQuery] = useState("");
+  const [industry, setIndustry] = useState("ALL");
+  const [employmentType, setEmploymentType] = useState("ALL");
+  const [workplaceType, setWorkplaceType] = useState("ALL");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [refreshedAt, setRefreshedAt] = useState(null);
+  const [notice, setNotice] = useState("");
+
+  const loadJobs = useCallback(async (refresh = false) => {
+    setJobsLoading(true);
+    setJobsError("");
+    try {
+      const response = await fetch("/api/public-jobs");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to load current vacancies.");
+      setJobs((Array.isArray(data.jobs) ? data.jobs : []).map(job => ({
+    ...job,
+    jobTitle: job.title,
+    postedAt: job.publishedAt,
+    sourceUrl: "/jobs/" + encodeURIComponent(job.id),
+    sourceProvider: "Fusion Staffing Solutions"
+  })));
+      setRefreshedAt(data.refreshedAt || null);
+      setNotice(data.notice || "");
+      setCurrentPage(1);
+    } catch (error) {
+      setJobsError(error.message || "Unable to load current vacancies.");
+    } finally {
+      setJobsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadJobs();
+  }, [loadJobs]);
+
+  const filteredJobs = useMemo(() => {
+    const search = keyword.trim().toLowerCase();
+    return jobs.filter((job) => {
+      if (country !== "ALL" && job.country !== country) return false;
+      const jobCategory = String(job.category || "").toUpperCase();
+      if (category === "IT" && jobCategory !== "IT" && jobCategory !== "BOTH") return false;
+      if (category === "NON-IT" && jobCategory !== "NON-IT" && jobCategory !== "BOTH") return false;
+      if (locationQuery && !String(job.location || "").toLowerCase().includes(locationQuery.toLowerCase())) return false;
+      if (industry !== "ALL" && job.industry !== industry) return false;
+      if (employmentType !== "ALL" && job.employmentType !== employmentType) return false;
+      if (workplaceType !== "ALL" && job.workplaceType !== workplaceType) return false;
+      if (!search) return true;
+
+      return [
+        job.jobTitle,
+        job.companyName,
+        job.location,
+        job.description,
+        job.industry,
+        job.employmentType,
+        job.workplaceType,
+        job.country,
+        job.category,
+        job.salary,
+      ].some((value) => String(value || "").toLowerCase().includes(search));
+    });
+  }, [jobs, keyword, country, category, locationQuery, industry, employmentType, workplaceType]);
+  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / JOBS_PER_PAGE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const displayedJobs = filteredJobs.slice(
+    (safeCurrentPage - 1) * JOBS_PER_PAGE,
+    safeCurrentPage * JOBS_PER_PAGE
+  );
+
+  useEffect(() => {
+    if (currentPage !== safeCurrentPage) setCurrentPage(safeCurrentPage);
+  }, [currentPage, safeCurrentPage]);
+
+  const changeKeyword = (value) => {
+    setKeyword(value);
+    setCurrentPage(1);
+  };
+
+  const clearFilters = () => {
+    setKeyword("");
+    setCurrentPage(1);
+    setCountry("ALL");
+    setCategory("ALL");
+    setLocationQuery("");
+    setIndustry("ALL");
+    setEmploymentType("ALL");
+    setWorkplaceType("ALL");
+  };
+
   return (
     <div className="sakevra-site">
       <FusionNavbar
@@ -31,20 +135,11 @@ export default function FindJobsPage({
         {/* HERO */}
         <section className="about-page-hero">
           <div className="about-page-copy">
-            <span className="section-eyebrow">
-              FIND OPPORTUNITIES
-            </span>
-
-            <h1>
-              Your next career move
-              <br />
-              could start <em>here.</em>
-            </h1>
+            <span className="section-eyebrow">CAREER OPPORTUNITIES</span>
+            <h1>Find Your Next <em>Opportunity</em></h1>
 
             <p>
-              Explore career opportunities through Fusion Staffing Solutions and join our
-              talent community to be considered for relevant current and
-              future roles across the US and UK.
+              Explore IT and Non-IT career opportunities across the United States and United Kingdom. Discover opportunities in technology, healthcare, manufacturing, construction, logistics and more.
             </p>
 
             <div className="sakevra-hero-actions">
@@ -74,252 +169,125 @@ export default function FindJobsPage({
           </div>
         </section>
 
-        {/* OPPORTUNITIES */}
+        {/* SEARCHABLE LIVE VACANCIES */}
         <section className="about-story">
           <div>
             <span className="section-eyebrow">
-              CAREER OPPORTUNITIES
+              CURRENT VACANCIES
             </span>
 
             <h2>
-              Find work that matches
-              <br />
-              where you want to go.
+              Search open roles
             </h2>
           </div>
 
-          <div className="about-story-copy">
-            <p>
-              Fusion Staffing Solutions connects professionals with organisations looking
-              for relevant skills, experience and expertise.
-            </p>
-
-            <p>
-              Opportunities may include permanent, contract and
-              contract-to-hire positions depending on employer
-              requirements.
-            </p>
-
-            <p>
-              Upload your CV and tell us about your experience and career
-              preferences so your profile can be considered when relevant
-              opportunities arise.
-            </p>
-          </div>
-        </section>
-
-        {/* HOW IT WORKS - CIRCULAR JOURNEY */}
-<section className="fusion-cycle-section">
-
-  <div className="fusion-cycle-heading">
-    <span className="section-eyebrow">YOUR JOURNEY</span>
-
-    <h2>
-      From your profile to <em>opportunity.</em>
-    </h2>
-
-    <p>
-      Follow the recruitment journey from joining our talent network
-      through to starting and growing in a new opportunity.
-    </p>
-  </div>
-
-  <div className="fusion-cycle">
-
-    {/* ANIMATED RINGS */}
-    <div className="cycle-ring cycle-ring-1"></div>
-    <div className="cycle-ring cycle-ring-2"></div>
-    <div className="cycle-ring cycle-ring-3"></div>
-
-    {/* CENTER */}
-    <div className="cycle-center">
-      <div className="cycle-center-pulse"></div>
-      <div className="cycle-center-pulse cycle-pulse-delay"></div>
-
-      <span className="cycle-star">✦</span>
-      <small>FUSION</small>
-
-      <strong>
-        CAREER
-        <br />
-        JOURNEY
-      </strong>
-
-      <div className="cycle-center-line"></div>
-
-      <span className="cycle-center-caption">
-        Profile → Opportunity
-      </span>
-    </div>
-
-    {/* 01 */}
-    <article className="cycle-step cycle-step-1 cycle-orange">
-      <span className="cycle-number">01</span>
-      <div className="cycle-icon">⇧</div>
-
-      <div className="cycle-content">
-        <small>START HERE</small>
-        <h3>Join & Upload CV</h3>
-        <p>
-          Create your candidate profile and share your CV,
-          experience and career preferences.
-        </p>
-      </div>
-    </article>
-
-    {/* 02 */}
-    <article className="cycle-step cycle-step-2 cycle-teal">
-      <span className="cycle-number">02</span>
-      <div className="cycle-icon">⌕</div>
-
-      <div className="cycle-content">
-        <small>PROFILE REVIEW</small>
-        <h3>Understand</h3>
-        <p>
-          Your skills, experience and career preferences help us
-          understand the opportunities relevant to you.
-        </p>
-      </div>
-    </article>
-
-    {/* 03 */}
-    <article className="cycle-step cycle-step-3 cycle-purple">
-      <span className="cycle-number">03</span>
-      <div className="cycle-icon">◎</div>
-
-      <div className="cycle-content">
-        <small>OPPORTUNITY DISCOVERY</small>
-        <h3>Match</h3>
-        <p>
-          Your profile can be considered against relevant employer
-          requirements and available opportunities.
-        </p>
-      </div>
-    </article>
-
-    {/* 04 */}
-    <article className="cycle-step cycle-step-4 cycle-blue">
-      <span className="cycle-number">04</span>
-      <div className="cycle-icon">⇄</div>
-
-      <div className="cycle-content">
-        <small>RECRUITER CONTACT</small>
-        <h3>Connect</h3>
-        <p>
-          When there is a potentially relevant opportunity,
-          our recruitment team can contact you.
-        </p>
-      </div>
-    </article>
-
-    {/* 05 */}
-    <article className="cycle-step cycle-step-5 cycle-pink">
-      <span className="cycle-number">05</span>
-      <div className="cycle-icon">✓</div>
-
-      <div className="cycle-content">
-        <small>EMPLOYER PROCESS</small>
-        <h3>Interview</h3>
-        <p>
-          Suitable candidates may progress to employer interviews,
-          assessments or further discussions.
-        </p>
-      </div>
-    </article>
-
-    {/* 06 */}
-    <article className="cycle-step cycle-step-6 cycle-gold">
-      <span className="cycle-number">06</span>
-      <div className="cycle-icon">▤</div>
-
-      <div className="cycle-content">
-        <small>SELECTION</small>
-        <h3>Offer</h3>
-        <p>
-          If selected by the employer, you may receive an employment
-          offer and discuss the proposed terms.
-        </p>
-      </div>
-    </article>
-
-    {/* 07 */}
-    <article className="cycle-step cycle-step-7 cycle-cyan">
-      <span className="cycle-number">07</span>
-      <div className="cycle-icon">◇</div>
-
-      <div className="cycle-content">
-        <small>GET READY</small>
-        <h3>Onboarding</h3>
-        <p>
-          Complete the required onboarding steps after accepting
-          an offer and prepare for your start.
-        </p>
-      </div>
-    </article>
-
-    {/* 08 */}
-    <article className="cycle-step cycle-step-8 cycle-violet">
-      <span className="cycle-number">08</span>
-      <div className="cycle-icon">↗</div>
-
-      <div className="cycle-content">
-        <small>MOVE FORWARD</small>
-        <h3>Start & Grow</h3>
-        <p>
-          Begin your new opportunity and continue building your
-          professional journey.
-        </p>
-      </div>
-    </article>
-
-  </div>
-</section>
-        {/* INDUSTRIES */}
-        <section className="about-ai-section">
-          <div>
-            <span className="section-eyebrow">
-              OPPORTUNITIES ACROSS INDUSTRIES
-            </span>
-
-            <h2>
-              Different skills.
-              <br />
-              Different career paths.
-            </h2>
-
-            <p>
-              Our candidate community includes professionals across
-              technology, healthcare, engineering, finance, life sciences,
-              sales, marketing, HR, operations and other professional
-              disciplines.
-            </p>
-
-            <button
-              type="button"
-              className="sakevra-primary"
-              onClick={onIndustries}
-            >
-              Explore Industries →
-            </button>
+          <div className="about-story-copy job-search-copy">
+            <p>Search genuine US and UK vacancies currently available in our listings.</p>
           </div>
 
-          <div className="about-ai-card">
-            <span>YOUR PROFILE</span>
-            <div>↓</div>
+          <div className="public-jobs">
+            <div className="public-jobs-filters" style={{ marginBottom: 22 }}>
+              <label style={{ gridColumn: "1 / -1" }}>
+                Search jobs
+                <input
+                  type="search"
+                  value={keyword}
+                  onChange={(event) => changeKeyword(event.target.value)}
+                  placeholder="Search by job title, location, company, industry, or keyword..."
+                  aria-label="Search vacancies by title, location, company, industry, or keyword"
+                />
+              </label>
+            </div>
+            {notice && <p className="public-jobs-notice">{notice}</p>}
 
-            <strong>Skills & Experience</strong>
-            <div>↓</div>
-
-            <strong>Career Preferences</strong>
-            <div>↓</div>
-
-            <strong>Relevant Opportunities</strong>
-            <div>↓</div>
-
-            <strong>Recruiter Review</strong>
-            <div>↓</div>
-
-            <span>CAREER CONNECTION</span>
+            {jobsLoading ? (
+              <p className="public-jobs-message" role="status">Loading current vacancies…</p>
+            ) : jobsError ? (
+              <p className="public-jobs-message public-jobs-error" role="alert">{jobsError}</p>
+            ) : filteredJobs.length === 0 ? (
+              <p className="public-jobs-message" role="status">
+                {jobs.length === 0
+                  ? "There are no current vacancies to display."
+                  : "No vacancies match these filters. Try changing your search."}
+              </p>
+            ) : (
+              <>
+                <p className="public-jobs-count" role="status">
+                  Showing {filteredJobs.length ? (safeCurrentPage - 1) * JOBS_PER_PAGE + 1 : 0}–{Math.min(safeCurrentPage * JOBS_PER_PAGE, filteredJobs.length)} of {filteredJobs.length} {filteredJobs.length === 1 ? "vacancy" : "vacancies"}
+                  {refreshedAt && ` · Updated ${formatPostedDate(refreshedAt)}`}
+                </p>
+                <div className="public-jobs-grid">
+                  {displayedJobs.map((job, index) => (
+                    <article
+                      className="public-job-card"
+                      key={job.id || index}
+                    >
+                      <div className="public-job-card-heading">
+                        <div>
+                          <h3>{job.jobTitle}</h3>
+                          <p className="public-job-company">{job.companyName || "Company not specified"}</p>
+                        </div>
+                        <span className="public-job-category">
+                          {job.category === "Both" ? "IT & Non-IT" : job.category || "Category unavailable"}
+                        </span>
+                      </div>
+                      <dl className="public-job-details">
+                        <div><dt>Location</dt><dd>{job.location || (job.country === "US" ? "United States" : "United Kingdom")}</dd></div>
+                        <div><dt>Country</dt><dd>{job.country || "Not specified"}</dd></div>
+                        {job.workplaceType && <div><dt>Workplace</dt><dd>{job.workplaceType === "ON_SITE" ? "On-site" : job.workplaceType}</dd></div>}
+                        {job.employmentType && <div><dt>Employment</dt><dd>{job.employmentType}</dd></div>}
+                        {job.salary && <div><dt>Salary</dt><dd>{job.salary}</dd></div>}
+                        {job.industry && <div><dt>Industry</dt><dd>{job.industry}</dd></div>}
+                        {formatPostedDate(job.postedAt) && <div><dt>Posted</dt><dd>{formatPostedDate(job.postedAt)}</dd></div>}
+                      </dl>
+                      {job.description && <p className="public-job-description">{job.description}</p>}
+                      <div className="public-job-actions">
+                        {job.sourceUrl && (
+                          <a href={job.sourceUrl}>
+                            View Job Details
+                          </a>
+                        )}
+                        <a className="sakevra-primary" href={`/jobs/${encodeURIComponent(job.id)}#apply`}>
+                          Apply Now <span>→</span>
+                        </a>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                {totalPages > 1 && (
+                  <nav
+                    className="public-jobs-load-more"
+                    aria-label="Job results pagination"
+                    style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 8 }}
+                  >
+                    <button
+                      type="button"
+                      className="sakevra-secondary"
+                      onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                      disabled={safeCurrentPage === 1}
+                      aria-label="Previous page of jobs"
+                    >Previous</button>
+                    {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
+                      <button
+                        type="button"
+                        key={page}
+                        className={page === safeCurrentPage ? "sakevra-primary" : "sakevra-secondary"}
+                        onClick={() => setCurrentPage(page)}
+                        aria-current={page === safeCurrentPage ? "page" : undefined}
+                        aria-label={`Page ${page}`}
+                      >{page}</button>
+                    ))}
+                    <button
+                      type="button"
+                      className="sakevra-secondary"
+                      onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                      disabled={safeCurrentPage === totalPages}
+                      aria-label="Next page of jobs"
+                    >Next</button>
+                  </nav>
+                )}
+              </>
+            )}
           </div>
         </section>
 

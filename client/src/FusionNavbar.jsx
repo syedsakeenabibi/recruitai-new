@@ -10,9 +10,11 @@ export default function FusionNavbar({
   onIndustries,
   onAbout,
   onTerms,
-  onContact,
+    onContact,
   onJoinTalent,
+  onAdmin,
 }) {
+
   const [aboutOpen, setAboutOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -26,6 +28,18 @@ export default function FusionNavbar({
 
     if (typeof action === "function") {
       action();
+    }
+  }
+
+  function openAdmin() {
+    closeMobileMenu();
+    if (typeof onAdmin === "function") {
+      onAdmin();
+      return;
+    }
+    if (window.location.pathname !== "/admin") {
+      window.history.pushState({}, "", "/admin");
+      window.dispatchEvent(new PopStateEvent("popstate"));
     }
   }
 
@@ -145,16 +159,15 @@ export default function FusionNavbar({
               </div>
             )}
           </div>
-
           <button
-            type="button"
-            className="sakevra-nav-link-button"
-            onClick={() => navigate(onContact)}
-          >
-            Contact
-          </button>
+  type="button"
+  className="sakevra-nav-link-button"
+  onClick={openAdmin}
+>
+  Admin
+</button>
 
-          {/* MOBILE UPLOAD CV */}
+{/* MOBILE UPLOAD CV */}
           <button
             type="button"
             className="sakevra-mobile-upload"

@@ -1,20 +1,137 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import FindJobsPage from "./FindJobsPage";
+import PublicJobDetailsPage from "./PublicJobDetailsPage";
 import CandidateRegistration from "./CandidateRegistration";
 import FusionHome from "./FusionHome";
 import AboutPage from "./AboutPage";
 import TermsPage from "./TermsPage";
-import FusionNavbar from "./FusionNavbar";
 import CandidatesPage from "./CandidatesPage";
 import EmployersPage from "./EmployersPage";
 import ServicesPage from "./ServicesPage";
 import IndustriesPage from "./IndustriesPage";
 import ContactPage from "./ContactPage";
+import AdminLogin from "./AdminLogin";
+import RecruiterDashboard from "./RecruiterDashboard";
 import "./App.css";
 
+const ROUTE_TO_PAGE = {
+  "/": "home",
+  "/jobs": "jobs",
+  "/upload-cv": "candidate",
+  "/candidates": "candidates",
+  "/employers": "employers",
+  "/services": "services",
+  "/industries": "industries",
+  "/about": "about",
+  "/terms": "terms",
+  "/contact": "contact",
+  "/login": "admin",
+  "/admin": "admin",
+  "/admin/candidates": "admin",
+  "/admin/enquiries": "admin",
+  "/admin/recruitment": "admin",
+  "/recruiter": "recruiter",
+  "/bdm": "bdm",
+  "/ra": "ra",
+};
+
+const PAGE_TO_ROUTE = {
+  home: "/",
+  jobs: "/jobs",
+  candidate: "/upload-cv",
+  candidates: "/candidates",
+  employers: "/employers",
+  services: "/services",
+  industries: "/industries",
+  about: "/about",
+  terms: "/terms",
+  contact: "/contact",
+  admin: "/admin",
+  recruiter: "/recruiter",
+  bdm: "/bdm",
+  ra: "/ra",
+};
+
+function pageFromLocation() {
+  return /^\/jobs\/[^/]+\/?$/.test(window.location.pathname) ? "job-details" : (ROUTE_TO_PAGE[window.location.pathname] || "home");
+}
+
+function sectionFromLocation(pathname = window.location.pathname) {
+  const sections = {
+    "/admin/candidates": "candidates",
+    "/admin/enquiries": "enquiries",
+    "/admin/recruitment": "recruitment",
+    "/bdm": "bdm",
+    "/ra": "ra",
+  };
+  return sections[pathname] || "dashboard";
+}
 
 function App() {
-  const [page, setPage] = useState("home");
+  const [page, setPageState] = useState(pageFromLocation);
+  const [routePath, setRoutePath] = useState(() => window.location.pathname);
+  const [adminLoggedIn, setAdminLoggedIn] = useState(false);
+  const [adminUser, setAdminUser] = useState(null);
+  const [adminChecking, setAdminChecking] = useState(true);
+  const [authError, setAuthError] = useState("");
+
+  const setPage = useCallback((nextPage) => {
+    const route = PAGE_TO_ROUTE[nextPage] || "/";
+    if (window.location.pathname !== route) {
+      window.history.pushState({}, "", route);
+    }
+    setRoutePath(route);
+    setPageState(nextPage);
+  }, []);
+  const handleDashboardSectionChange = useCallback((section) => {
+    const route = section === "bdm" || section === "ra"
+      ? `/${section}`
+      : section === "candidates" || section === "enquiries" || section === "recruitment"
+        ? `/admin/${section}`
+        : "/admin";
+    if (window.location.pathname !== route) window.history.pushState({}, "", route);
+    setRoutePath(route);
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      setRoutePath(window.location.pathname);
+      setPageState(pageFromLocation());
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/admin/session", { credentials: "include" })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) {
+          if (response.status !== 401) throw new Error(data.error || "Unable to restore the admin session.");
+          return;
+        }
+        if (active) {
+          setAdminUser(data.admin);
+          setAdminLoggedIn(true);
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setAuthError(error.message);
+          console.error("ADMIN SESSION RESTORE ERROR:", error);
+        }
+      })
+      .finally(() => {
+        if (active) setAdminChecking(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+
+
   const [jd, setJd] = useState("");
   const [candidates, setCandidates] = useState([]);
   const [job, setJob] = useState(null);
@@ -40,7 +157,7 @@ const [editingDraft, setEditingDraft] = useState(null);
     setSelected([]);
 
     try {
-      const response = await fetch("https://recruitai-api-0s8o.onrender.com/api/match", {
+      const response = await fetch("/api/match", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -53,7 +170,6 @@ const [editingDraft, setEditingDraft] = useState(null);
       if (!response.ok) {
         throw new Error(data.error || "Candidate matching failed.");
       }
-
       setJob(data.aiExtractedJob);
       setSearched(data.totalCandidatesSearched);
       setRelevant(data.totalRelevantCandidates);
@@ -90,7 +206,7 @@ async function generateOutreach() {
 
     for (const candidate of selectedCandidates) {
       const response = await fetch(
-        "https://recruitai-api-0s8o.onrender.com/api/generate-outreach",
+        "/api/generate-outreach",
         {
           method: "POST",
           headers: {
@@ -157,10 +273,11 @@ if (page === "home") {
   onTerms={() => setPage("terms")}
   onContact={() => setPage("contact")}
   onJoinTalent={() => setPage("candidate")}
-  onOpenRecruitAI={() => setPage("recruiter")}
+  onAdmin={() => setPage("admin")}
+  onOpenRecruitAI={() => setPage("admin")}
 />
   );
-}   
+}
 if (page === "candidates") {
   return (
     <CandidatesPage
@@ -242,7 +359,16 @@ if (page === "candidate") {
     />
   );
 }
-if (page === "jobs") {                                         
+if (/^\/jobs\/[^/]+\/?$/.test(window.location.pathname)) {
+    return (
+      <PublicJobDetailsPage
+        onJobs={() => { window.location.href = "/jobs"; }}
+        onJoinTalent={() => { window.location.href = "/candidates"; }}
+      />
+    );
+  }
+
+  if (page === "jobs") {
   return (
     <FindJobsPage
       onHome={() => setPage("home")}
@@ -258,7 +384,7 @@ onContact={() => setPage("contact")}
     />
   );
 
-  
+
 }
 if (page === "services") {
   return (
@@ -305,6 +431,70 @@ if (page === "contact") {
     />
   );
 }
+if (["admin", "recruiter", "bdm", "ra"].includes(page)) {
+  if (adminChecking) {
+    return <div style={{ padding: "40px" }}>Loading...</div>;
+  }
+
+  if (!adminLoggedIn) {
+    return (
+      <AdminLogin
+        onLogin={(user) => {
+          setAdminUser(user);
+          setAdminLoggedIn(true);
+          setAuthError("");
+        }}
+        onBack={() => setPage("home")}
+        errorMessage={authError}
+      />
+    );
+  }
+
+  const role = String(adminUser?.role || "").toUpperCase();
+  const allowedForPage = page === "bdm"
+    ? ["ADMIN", "BDM"].includes(role)
+    : page === "ra"
+      ? ["ADMIN", "RA"].includes(role)
+      : true;
+  if (!allowedForPage) {
+    return (
+      <div role="alert" style={{ padding: "40px" }}>
+        <h2>Access denied</h2>
+        <p>This account does not have permission to open this workspace.</p>
+        <button type="button" onClick={() => setPage("admin")}>Return to dashboard</button>
+      </div>
+    );
+  }
+
+  const initialSection = sectionFromLocation(routePath);
+  return (
+    <RecruiterDashboard
+      key={`${page}-${routePath}`}
+      adminUser={adminUser}
+      initialSection={initialSection}
+      authError={authError}
+      onSectionChange={handleDashboardSectionChange}
+      onLogout={async () => {
+        try {
+          const response = await fetch("/api/admin/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "Unable to log out.");
+          setAdminUser(null);
+          setAdminLoggedIn(false);
+          setAuthError("");
+          setPage("home");
+        } catch (error) {
+          setAuthError(error.message);
+          console.error("ADMIN LOGOUT ERROR:", error);
+        }
+      }}
+    />
+  );
+}
+
 if (page !== "recruiter") {
   return (
     <div style={{ padding: "60px", textAlign: "center" }}>
@@ -640,7 +830,7 @@ if (page !== "recruiter") {
   className="send-button"
   onClick={async () => {
     try {
-      const response = await fetch("https://recruitai-api-0s8o.onrender.com/api/send-email", {
+      const response = await fetch("/api/send-email", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

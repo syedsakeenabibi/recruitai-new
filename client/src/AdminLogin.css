@@ -1,0 +1,663 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap");
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+/* =========================================================
+   FUSION STAFFING — ADMIN LOGIN
+========================================================= */
+
+.admin-login-page {
+  --navy: #101828;
+  --navy-dark: #0b1220;
+  --navy-light: #1d2939;
+  --coral: #ff6b4a;
+  --coral-dark: #e95739;
+  --teal: #0f9f92;
+
+  position: relative;
+  min-height: 100vh;
+  width: 100%;
+  overflow: hidden;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 80px 24px 50px;
+
+  font-family: "DM Sans", Arial, sans-serif;
+
+  background:
+    radial-gradient(
+      circle at 12% 18%,
+      rgba(255, 107, 74, 0.14),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at 88% 82%,
+      rgba(15, 159, 146, 0.13),
+      transparent 30%
+    ),
+    linear-gradient(
+      135deg,
+      #090f1a 0%,
+      #101828 48%,
+      #182230 100%
+    );
+}
+
+/* Background decorations */
+
+.admin-login-page::before {
+  content: "";
+  position: absolute;
+  width: 520px;
+  height: 520px;
+  top: -300px;
+  right: -180px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 50%;
+}
+
+.admin-login-page::after {
+  content: "";
+  position: absolute;
+  width: 380px;
+  height: 380px;
+  left: -190px;
+  bottom: -210px;
+  border: 1px solid rgba(255, 107, 74, 0.12);
+  border-radius: 50%;
+}
+
+/* =========================================================
+   BACK BUTTON
+========================================================= */
+
+.admin-back {
+  position: absolute;
+  top: 28px;
+  left: 32px;
+  z-index: 20;
+
+  min-height: 42px;
+  padding: 0 16px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+
+  background: rgba(255, 255, 255, 0.05);
+  color: #d0d5dd;
+
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.admin-back:hover {
+  color: #ffffff;
+  background: rgba(255, 107, 74, 0.11);
+  border-color: rgba(255, 107, 74, 0.4);
+  transform: translateX(-2px);
+}
+
+/* =========================================================
+   LOGIN CARD
+========================================================= */
+
+.admin-login-card {
+  position: relative;
+  z-index: 10;
+
+  width: 100%;
+  max-width: 460px;
+
+  padding: 46px 44px 38px;
+
+  overflow: hidden;
+
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+
+  background: rgba(17, 27, 45, 0.94);
+
+  backdrop-filter: blur(22px);
+
+  box-shadow:
+    0 40px 100px rgba(0, 0, 0, 0.42),
+    0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+/* Fusion coral/teal top line */
+
+.admin-login-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+
+  width: 100%;
+  height: 4px;
+
+  background: linear-gradient(
+    90deg,
+    #ff6b4a 0%,
+    #ff6b4a 72%,
+    #0f9f92 100%
+  );
+}
+
+/* =========================================================
+   LOGO
+========================================================= */
+
+.admin-login-logo {
+  width: 58px;
+  height: 58px;
+
+  margin-bottom: 26px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 16px 16px 16px 5px;
+
+  background: #ff6b4a;
+  color: #ffffff;
+
+  font-family: "Manrope", sans-serif;
+  font-size: 26px;
+  font-weight: 800;
+
+  box-shadow: 0 14px 30px rgba(255, 107, 74, 0.25);
+}
+
+/* =========================================================
+   TEXT
+========================================================= */
+
+.admin-eyebrow {
+  margin: 0 0 9px;
+
+  color: #ff8064;
+
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2.2px;
+  text-transform: uppercase;
+}
+
+.admin-login-card h1 {
+  margin: 0;
+
+  color: #ffffff;
+
+  font-family: "Manrope", sans-serif;
+  font-size: 35px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -1px;
+}
+
+.admin-login-subtitle {
+  max-width: 370px;
+
+  margin: 12px 0 30px;
+
+  color: #98a2b3;
+
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* =========================================================
+   FORM
+========================================================= */
+
+.admin-login-card form {
+  width: 100%;
+}
+
+.admin-login-card label {
+  display: block;
+
+  margin: 18px 0 8px;
+
+  color: #d0d5dd;
+
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-login-card input {
+  width: 100%;
+  height: 52px;
+
+  padding: 0 15px;
+
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 9px;
+
+  outline: none;
+
+  background: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.admin-login-card input::placeholder {
+  color: #667085;
+}
+
+.admin-login-card input:hover {
+  border-color: rgba(255, 255, 255, 0.23);
+}
+
+.admin-login-card input:focus {
+  border-color: #0f9f92;
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 0 0 3px rgba(15, 159, 146, 0.12);
+}
+
+/* Chrome autofill */
+
+.admin-login-card input:-webkit-autofill,
+.admin-login-card input:-webkit-autofill:hover,
+.admin-login-card input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #ffffff;
+  -webkit-box-shadow: 0 0 0 1000px #182230 inset;
+}
+
+/* =========================================================
+   LOGIN BUTTON
+========================================================= */
+
+.admin-login-button {
+  width: 100%;
+  height: 54px;
+
+  margin-top: 27px;
+
+  border: 0;
+  border-radius: 9px;
+
+  background: #ff6b4a;
+  color: #ffffff;
+
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+
+  cursor: pointer;
+
+  box-shadow: 0 12px 28px rgba(255, 107, 74, 0.22);
+
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.admin-login-button:hover {
+  background: #e95739;
+  transform: translateY(-2px);
+  box-shadow: 0 17px 34px rgba(255, 107, 74, 0.3);
+}
+
+.admin-login-button:active {
+  transform: translateY(0);
+}
+
+/* =========================================================
+   SECURITY
+========================================================= */
+
+.admin-security-note {
+  margin-top: 25px;
+  padding-top: 21px;
+
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+
+  color: #7f8b9f;
+
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.admin-security-note::before {
+  content: "";
+  display: inline-block;
+
+  width: 7px;
+  height: 7px;
+
+  margin-right: 8px;
+
+  border-radius: 50%;
+
+  background: #0f9f92;
+
+  box-shadow: 0 0 0 4px rgba(15, 159, 146, 0.1);
+}
+
+/* =========================================================
+   MOBILE
+========================================================= */
+
+@media (max-width: 600px) {
+  .admin-login-page {
+    align-items: flex-start;
+    padding: 90px 17px 30px;
+  }
+
+  .admin-back {
+    top: 18px;
+    left: 17px;
+    min-height: 39px;
+    padding: 0 13px;
+    font-size: 12px;
+  }
+
+  .admin-login-card {
+    max-width: 100%;
+    padding: 38px 24px 30px;
+    border-radius: 17px;
+  }
+
+  .admin-login-logo {
+    width: 52px;
+    height: 52px;
+    font-size: 23px;
+  }
+
+  .admin-login-card h1 {
+    font-size: 30px;
+  }
+
+  .admin-login-card input {
+    height: 50px;
+  }
+
+  .admin-login-button {
+    height: 52px;
+  }
+}
+/* ==========================================================
+   FUSION STAFFING — RECRUITER PORTAL
+   NAVY + CORAL + TEAL
+========================================================== */
+
+.rd-shell,
+.rd-dashboard {
+  --rd-primary: #ff6b4a;
+  --rd-green: #0f9f92;
+  --rd-purple: #ff8a70;
+  --rd-cyan: #0f9f92;
+  --rd-orange: #ff6b4a;
+
+  --rd-text: #101828;
+  --rd-muted: #667085;
+  --rd-border: #e4e7ec;
+  --rd-card: #ffffff;
+}
+
+.rd-sidebar {
+  background: #101828 !important;
+  border-right: 1px solid #1d2939;
+}
+
+.rd-brand-mark {
+  background: #ff6b4a !important;
+  color: #ffffff !important;
+}
+
+.rd-nav button {
+  color: #98a2b3;
+}
+
+.rd-nav button:hover {
+  background: rgba(255, 107, 74, 0.09) !important;
+  color: #ffffff !important;
+}
+
+.rd-nav button.active {
+  background: rgba(255, 107, 74, 0.14) !important;
+  color: #ffffff !important;
+}
+
+.rd-nav button.active .rd-icon {
+  color: #ff6b4a !important;
+}
+
+.rd-nav-count {
+  background: rgba(255, 107, 74, 0.15) !important;
+  color: #ff9a83 !important;
+}
+
+.rd-avatar {
+  background: #ff6b4a !important;
+  color: #ffffff !important;
+}
+
+.rd-main {
+  background: #f8fafc;
+}
+
+.rd-add-button {
+  background: #ff6b4a !important;
+  color: #ffffff !important;
+  box-shadow: 0 9px 22px rgba(255, 107, 74, 0.2) !important;
+}
+
+.rd-add-button:hover {
+  background: #e95739 !important;
+}
+
+.rd-stat-card,
+.rd-card {
+  background: #ffffff;
+  border: 1px solid #e4e7ec;
+}
+
+.rd-stat-card:nth-child(1) .rd-stat-icon,
+.rd-stat-card:nth-child(3) .rd-stat-icon,
+.rd-stat-card:nth-child(5) .rd-stat-icon {
+  background: #fff0ec !important;
+  color: #ff6b4a !important;
+}
+
+.rd-stat-card:nth-child(2) .rd-stat-icon,
+.rd-stat-card:nth-child(4) .rd-stat-icon {
+  background: #e9f8f6 !important;
+  color: #0f9f92 !important;
+}
+
+.rd-stat-change span {
+  color: #0f9f92 !important;
+}
+
+.rd-card-header button {
+  color: #ff6b4a !important;
+}
+
+.legend-primary {
+  background: #ff6b4a !important;
+}
+
+.legend-secondary {
+  background: #0f9f92 !important;
+}
+
+.rd-line.visitors {
+  stroke: #ff6b4a !important;
+}
+
+.rd-line.submissions {
+  stroke: #0f9f92 !important;
+}
+
+.rd-donut {
+  background:
+    radial-gradient(
+      circle at center,
+      #ffffff 0 50%,
+      transparent 51%
+    ),
+    conic-gradient(
+      #ff6b4a 0 62%,
+      #0f9f92 62% 85%,
+      #ffb09d 85% 95%,
+      #e4e7ec 95% 100%
+    ) !important;
+}
+
+.rd-source-dot.one {
+  background: #ff6b4a !important;
+}
+
+.rd-source-dot.two {
+  background: #0f9f92 !important;
+}
+
+.rd-source-dot.three {
+  background: #ffb09d !important;
+}
+
+.rd-progress span {
+  background: linear-gradient(
+    90deg,
+    #ff6b4a,
+    #ff8a70
+  ) !important;
+}
+
+.rd-table tbody tr:hover {
+  background: #fff9f4 !important;
+}
+
+.rd-small-avatar {
+  background: #fff0ec !important;
+  color: #ff6b4a !important;
+}
+
+.rd-source.website {
+  background: #e9f8f6 !important;
+  color: #087c72 !important;
+}
+
+.rd-source.manual {
+  background: #fff0ec !important;
+  color: #e95739 !important;
+}
+
+.rd-cv-actions button {
+  border-color: #e4e7ec !important;
+  background: #ffffff !important;
+  color: #0f9f92 !important;
+}
+
+.rd-cv-actions button:hover {
+  border-color: #ff6b4a !important;
+  background: #fff9f4 !important;
+  color: #ff6b4a !important;
+}
+
+.rd-search:focus-within,
+.rd-filters select:focus,
+.rd-filters > input:focus {
+  border-color: #0f9f92 !important;
+  box-shadow: 0 0 0 3px rgba(15, 159, 146, 0.1);
+}
+
+.rd-modal {
+  border-top: 4px solid #ff6b4a;
+}
+
+.rd-upload-icon,
+.rd-file-icon {
+  background: #fff0ec !important;
+  color: #ff6b4a !important;
+}
+
+.rd-file-box:hover {
+  border-color: #ff6b4a !important;
+  background: #fff9f4 !important;
+}
+
+.rd-modal label > input:not([type="file"]):focus {
+  border-color: #0f9f92 !important;
+  box-shadow: 0 0 0 3px rgba(15, 159, 146, 0.1) !important;
+}
+
+.rd-save {
+  background: #ff6b4a !important;
+  color: #ffffff !important;
+  box-shadow: 0 8px 20px rgba(255, 107, 74, 0.2) !important;
+}
+
+.rd-save:hover {
+  background: #e95739 !important;
+}
+/* Sign In / Sign Up Tabs */
+
+.admin-auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 5px;
+  margin-bottom: 24px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+}
+
+.admin-auth-tabs button {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: #667085;
+  padding: 11px 16px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.admin-auth-tabs button:hover {
+  color: #101828;
+  background: #ffffff;
+}
+
+.admin-auth-tabs button.active {
+  background: #101828;
+  color: #ffffff;
+  box-shadow: 0 3px 10px rgba(16, 24, 40, 0.15);
+}

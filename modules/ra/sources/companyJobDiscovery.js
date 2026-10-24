@@ -1,0 +1,225 @@
+﻿"use strict";
+
+const ATS = [
+  { provider: "GREENHOUSE", hosts: ["boards.greenhouse.io", "job-boards.greenhouse.io"], access: "LIVE_API" },
+  { provider: "LEVER", hosts: ["jobs.lever.co"], access: "LIVE_API" },
+  { provider: "ASHBY", hosts: ["jobs.ashbyhq.com"], access: "LIVE_API" },
+  { provider: "SMARTRECRUITERS", hosts: ["jobs.smartrecruiters.com", "careers.smartrecruiters.com"], access: "LIVE_API" },
+
+  { provider: "WORKDAY", hosts: ["myworkdayjobs.com"], access: "CONNECTOR_REQUIRED" },
+  { provider: "ORACLE", hosts: ["oraclecloud.com"], access: "CONNECTOR_REQUIRED" },
+  { provider: "SUCCESSFACTORS", hosts: ["successfactors.com"], access: "CONNECTOR_REQUIRED" },
+  { provider: "ICIMS", hosts: ["icims.com"], access: "CONNECTOR_REQUIRED" },
+  { provider: "WORKABLE", hosts: ["apply.workable.com"], access: "CONNECTOR_REQUIRED" },
+  { provider: "JOBVITE", hosts: ["jobs.jobvite.com"], access: "CONNECTOR_REQUIRED" },
+  { provider: "JAZZHR", hosts: ["applytojob.com"], access: "CONNECTOR_REQUIRED" },
+  { provider: "TEAMTAILOR", hosts: ["teamtailor.com"], access: "CONNECTOR_REQUIRED" },
+  { provider: "RECRUITEE", hosts: ["recruitee.com"], access: "CONNECTOR_REQUIRED" },
+  { provider: "BAMBOOHR", hosts: ["bamboohr.com"], access: "CONNECTOR_REQUIRED" },
+  { provider: "PAYLOCITY", hosts: ["recruiting.paylocity.com"], access: "CONNECTOR_REQUIRED" },
+  { provider: "ADP", hosts: ["recruiting.adp.com"], access: "CONNECTOR_REQUIRED" },
+  { provider: "BULLHORN", hosts: ["bullhornstaffing.com"], access: "CONNECTOR_REQUIRED" }
+]
+
+function classify(link) {
+  const url = new URL(link);
+  const host = url.hostname.toLowerCase();
+  const segments = url.pathname.split("/").filter(Boolean);
+
+  for (const ats of ATS) {
+    if (ats.hosts.some(h => host === h || host.endsWith("." + h))) {
+      return {
+        provider: ats.provider,
+        board: segments[0] || null,
+        url: link,
+        access: ats.access
+      };
+    }
+  }
+
+  if (host === "indeed.com" || host.endsWith(".indeed.com")) {
+    return { provider: "INDEED", url: link, access: "AUTHORIZATION_REQUIRED" };
+  }
+
+  if (host === "linkedin.com" || host.endsWith(".linkedin.com")) {
+    return { provider: "LINKEDIN", url: link, access: "AUTHORIZATION_REQUIRED" };
+  }
+
+  return null;
+}
+
+function extractLinks(html, baseUrl) {
+  const matches = [
+    ...html.matchAll(/(?:href|src)\s*=\s*["']([^"']+)["']/gi),
+    ...html.matchAll(/https?:\\?\/\\?\/[^"'\s<>\\]+/gi)
+  ];
+
+  const urls = [];
+
+  for (const match of matches) {
+    const raw = match[1] || match[0];
+    try {
+      const url = new URL(raw.replace(/\\\//g, "/").replace(/&amp;/g, "&"), baseUrl);
+      if (url.protocol === "https:") urls.push(url.href);
+    } catch {}
+  }
+
+  return [...new Set(urls)];
+}
+
+
+const { extractEmbeddedJobs } = require("./embeddedJobExtractor");
+
+/* CAREERS_CRAWLER_V1 */
+function careerCandidates(html, baseUrl) {
+  const found = [];
+  const pattern = /(?:href|src)\s*=\s*["']([^"']+)["']/gi;
+
+  for (const match of html.matchAll(pattern)) {
+    try {
+      const raw = match[1].replace(/&amp;/g, "&");
+      const url = new URL(raw, baseUrl);
+
+      if (url.protocol !== "https:") continue;
+
+      // Ignore static assets and non-HTML resources.
+      if (/\.(?:js|css|png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf|map|pdf|zip)(?:$|[?#])/i.test(url.pathname)) {
+        continue;
+      }
+
+      if (/\/(?:_next|static|assets|images|fonts|scripts)\//i.test(url.pathname)) {
+        continue;
+      }
+
+      if (/career|jobs?|vacanc|position|opportunit|join[-_]?us|recruit|employment|workday|icims|workable|jobvite|greenhouse|lever|ashby|smartrecruiters|teamtailor|recruitee|bamboohr/i.test(url.hostname + url.pathname)) {
+        found.push(url.href);
+      }
+    } catch {}
+  }
+
+  return [...new Set(found)];
+}
+
+async function crawlCareerPages(startUrl, firstHtml) {
+  const { fetchPublicPage } = require("./safeCompanyFetch");
+  const rootHost = new URL(startUrl).hostname.replace(/^www\./, "");
+  const priority = url => {
+    const path = new URL(url).pathname.toLowerCase();
+    if (/\/(?:careers|jobs|vacancies|open-positions|job-openings)(?:\/|$)/.test(path)) return 0;
+    if (/career|job|vacanc|position|opportunit/.test(path)) return 1;
+    return 2;
+  };
+
+  const queue = careerCandidates(firstHtml, startUrl)
+    .sort((a, b) => priority(a) - priority(b));
+  const visited = new Set([startUrl]);
+  const allLinks = new Set(queue);
+  const embeddedJobs = extractEmbeddedJobs(firstHtml, startUrl);
+  const pages = [];
+
+  while (queue.length && pages.length < 8) {
+    const next = queue.shift();
+
+    if (visited.has(next)) continue;
+    visited.add(next);
+
+    const host = new URL(next).hostname.replace(/^www\./, "");
+
+    // Follow only pages belonging to the company's domain.
+    if (host !== rootHost && !host.endsWith("." + rootHost)) {
+      continue;
+    }
+
+    try {
+      const page = await fetchPublicPage(next);
+
+      pages.push({
+        url: page.url,
+        status: "FETCHED"
+      });
+
+      embeddedJobs.push(...extractEmbeddedJobs(page.html, page.url));
+
+      for (const link of careerCandidates(page.html, page.url)) {
+        allLinks.add(link);
+
+        if (!visited.has(link) && queue.length < 80) {
+          queue.push(link);
+        }
+      }
+    } catch (error) {
+      pages.push({
+        url: next,
+        status: "FAILED",
+        error: error.message
+      });
+    }
+  }
+
+  return {
+    links: [...allLinks],
+    pages,
+    embeddedJobs
+  };
+}
+
+async function discoverCompanyJobs(pageUrl) {
+  const parsed = new URL(pageUrl);
+
+  if (parsed.protocol !== "https:") throw new Error("HTTPS URL required.");
+
+  const { fetchPublicPage } = require("./safeCompanyFetch");
+  const page = await fetchPublicPage(parsed.href);
+  const html = page.html;
+  const response = { status: page.status };
+  const crawl = await crawlCareerPages(page.url, html);
+  const links = [...new Set([
+    ...extractLinks(html, page.url),
+    ...crawl.links
+  ])];
+  const sources = links.map(classify).filter(Boolean);
+
+  const unique = [...new Map(sources.map(s => [s.provider + ":" + (s.board || s.url), s])).values()];
+
+  const { discoverAtsJobs } = require("./atsSources");
+  /* EMBEDDED_DISCOVERY_V1 */
+  const jobs = [...crawl.embeddedJobs];
+  const statuses = [];
+
+  for (const source of unique) {
+    if (source.access !== "LIVE_API") {
+      statuses.push({ ...source, status: source.access });
+      continue;
+    }
+
+    try {
+      const result = await discoverAtsJobs({
+        source: source.provider,
+        boards: [{ provider: source.provider, slug: source.board }],
+        onlyRequestedBoards: true,
+        country: "BOTH",
+        category: "BOTH"
+      });
+
+      jobs.push(...result.opportunities);
+      statuses.push(...result.sourceStatus);
+    } catch (error) {
+      statuses.push({ ...source, status: "ERROR", error: error.message });
+    }
+  }
+
+  const uniqueJobs = [...new Map(jobs.map(j => [j.sourceUrl, j])).values()];
+
+  return {
+    companyUrl: parsed.href,
+    httpStatus: response.status,
+    detectedSources: unique,
+    careersPagesChecked: crawl.pages,
+    careerLinksFound: crawl.links.length,
+    providerStatus: statuses,
+    totalJobs: uniqueJobs.length,
+    opportunities: uniqueJobs
+  };
+}
+
+module.exports = { discoverCompanyJobs };

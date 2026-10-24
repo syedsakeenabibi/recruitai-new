@@ -273,7 +273,7 @@ function handleCountryChange(e) {
   e.preventDefault();
 
   try {
-    const response = await fetch("https://recruitai-api-0s8o.onrender.com/api/contact", {
+    const response = await fetch("/api/contact", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
