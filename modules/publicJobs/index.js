@@ -405,7 +405,7 @@ router.post("/:id/apply", uploadResume, async (req, res) => {
         "skills",
         "preferredRoles",
         "preferredLocations",
-        "postcode"
+       "postalCode"
       )
       VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
@@ -418,7 +418,7 @@ router.post("/:id/apply", uploadResume, async (req, res) => {
         "phone" = EXCLUDED."phone",
         "location" = COALESCE(EXCLUDED."location", "Candidate"."location"),
         "country" = COALESCE(EXCLUDED."country", "Candidate"."country"),
-        "postcode" = COALESCE(EXCLUDED."postcode", "Candidate"."postcode"),
+        "postalCode" = COALESCE(EXCLUDED."postalCode", "Candidate"."postalCode"),
         "experienceYears" = COALESCE(
           EXCLUDED."experienceYears",
           "Candidate"."experienceYears"
