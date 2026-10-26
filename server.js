@@ -1299,24 +1299,28 @@ app.post(
     let registrationStage = "validating request";
 
     try {
-      const {
-        name,
-        email,
-        phone,
-        country,
-        location,
-        currentTitle,
-        industry,
-        experienceYears,
-        skills,
-        preferredRoles,
-        preferredLocations,
-        workPreference,
-        employmentType,
-        recruitmentConsent,
-      } = req.body;
+   
 
-      // Validate required fields
+
+const {
+  name,
+  email,
+  phone,
+  country,
+  postcode,
+  location,
+  currentTitle,
+  industry,
+  experienceYears,
+  skills,
+  preferredRoles,
+  preferredLocations,
+  workPreference,
+  employmentType,
+  recruitmentConsent,
+} = req.body;
+
+// Validate required fields
       if (
         !name?.trim() ||
         !email?.trim() ||

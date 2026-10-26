@@ -642,3 +642,449 @@
     padding: 22px 18px;
   }
 }
+
+
+/* ==========================================
+   RECRUITAI JOB DETAILS — FINAL STYLE FIX
+   Append this block at the END of the CSS file
+   ========================================== */
+
+/* Balanced desktop layout */
+.job-details-page {
+  background: #f1f5fb;
+  color: #172b4d;
+  overflow-wrap: anywhere;
+}
+
+.job-details-container {
+  width: 100%;
+  max-width: 1320px;
+  margin-inline: auto;
+}
+
+.job-details-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(360px, 0.9fr);
+  align-items: start;
+  gap: 26px;
+}
+
+.job-info-card,
+.job-application-card {
+  min-width: 0;
+  width: 100%;
+  background: #fff;
+  border: 1px solid #e1e9f3;
+  border-radius: 16px;
+  box-shadow: 0 8px 28px rgba(20, 45, 80, 0.06);
+}
+
+/* Job title and salary */
+.job-heading-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.job-heading-main,
+.job-heading-main h1,
+.job-heading-row h1 {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.job-heading-row h1 {
+  color: #102747;
+  font-size: clamp(28px, 3vw, 40px);
+  line-height: 1.2;
+  letter-spacing: -0.6px;
+}
+
+.job-company {
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.job-salary {
+  max-width: 100%;
+  padding: 0;
+  text-align: left;
+}
+
+.job-salary strong {
+  color: #173d68;
+  font-size: 20px;
+  overflow-wrap: anywhere;
+}
+
+.job-salary span {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* Job location and employment information */
+.job-meta-row {
+  align-items: center;
+  gap: 12px 20px;
+  color: #425875;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.job-meta-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Section headings and overview */
+.job-content-section {
+  min-width: 0;
+  margin: 0 0 30px;
+  text-align: left;
+}
+
+.job-content-section h2 {
+  margin: 0 0 14px;
+  color: #17375e;
+  font-size: 20px;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.job-overview-text {
+  margin: 0;
+  color: #40536c;
+  font-size: 15px;
+  line-height: 1.85;
+  text-align: left;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+/* Properly format overview content when using JobContent */
+.job-overview-text .public-job-content {
+  font-size: 15px;
+  line-height: 1.85;
+  text-align: left;
+}
+
+.job-overview-text .public-job-content h3 {
+  margin: 20px 0 10px;
+  color: #17375e;
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.job-overview-text .public-job-content p {
+  margin: 0 0 14px;
+}
+
+.job-overview-text .public-job-content ul {
+  margin: 10px 0 18px;
+  padding-left: 24px;
+  list-style: disc;
+}
+
+.job-overview-text .public-job-content li {
+  display: list-item;
+  margin-bottom: 8px;
+}
+
+/* FIX: Keep the checkmark separate from the responsibility text */
+.job-details-page .job-check-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 13px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.job-details-page .job-check-list > li {
+  display: grid;
+  grid-template-columns: 23px minmax(0, 1fr);
+  align-items: start;
+  gap: 11px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  color: #40536c;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.75;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+/* Style ONLY the checkmark */
+.job-details-page .job-check-list > li > span:first-child {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: 2px 0 0;
+  padding: 0;
+  border-radius: 50%;
+  background: #fff0ec;
+  color: #f45140;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* The text must NOT look like another checkmark */
+.job-details-page .job-check-list > li > span:last-child {
+  display: block;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #40536c;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.75;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+/* Quick Apply form */
+.job-application-card {
+  align-self: start;
+  position: sticky;
+  top: 20px;
+  padding: 28px;
+}
+
+.quick-apply-form {
+  display: grid;
+  gap: 18px;
+  width: 100%;
+  min-width: 0;
+}
+
+.quick-apply-header {
+  min-width: 0;
+  gap: 14px;
+  padding-bottom: 20px;
+}
+
+.quick-apply-header > div {
+  min-width: 0;
+}
+
+.quick-apply-header h2 {
+  color: #102747;
+  font-size: 25px;
+  line-height: 1.35;
+}
+
+.quick-apply-header p {
+  color: #647790;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.quick-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.quick-field > span {
+  color: #243b5b;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.quick-field > input,
+.quick-field > select,
+.quick-field select,
+.quick-field textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding: 11px 13px;
+  box-sizing: border-box;
+  border: 1px solid #cbd8e9;
+  border-radius: 9px;
+  background: #fff;
+  color: #263e5d;
+  font-size: 14px;
+}
+
+.quick-field > input:focus,
+.quick-field select:focus,
+.quick-field textarea:focus {
+  outline: 3px solid rgba(59, 130, 246, 0.13);
+  border-color: #6b9de8;
+}
+
+/* Phone number controls */
+.phone-input-row {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  gap: 8px;
+}
+
+.phone-dial-code {
+  flex: 0 0 60px;
+  min-width: 60px;
+  min-height: 46px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid #cbd8e9;
+  border-radius: 9px;
+  background: #f0f5fd;
+  color: #263e5d;
+  font-size: 14px;
+}
+
+.quick-apply-form .phone-input-row input[type="tel"] {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  min-height: 46px;
+  box-sizing: border-box;
+}
+
+/* Resume upload */
+.resume-upload-box {
+  width: 100%;
+  min-width: 0;
+  min-height: 150px;
+  padding: 22px 16px;
+  gap: 12px;
+  border: 1.5px dashed #b7cbe1;
+  border-radius: 10px;
+  background: #fafdff;
+}
+
+.resume-upload-box input[type="file"] {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+}
+
+.resume-upload-box input[type="file"]::file-selector-button {
+  max-width: 100%;
+  margin-right: 8px;
+  padding: 8px 10px;
+  border: 1px solid #c5d5ee;
+  border-radius: 6px;
+  background: #e8f0fd;
+  color: #10264a;
+  cursor: pointer;
+}
+
+/* Consent and submit button */
+.quick-consent {
+  align-items: flex-start;
+  gap: 10px;
+  color: #566a83;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.quick-consent input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+}
+
+.quick-submit-button {
+  width: 100%;
+  min-height: 48px;
+  padding: 13px 18px;
+  border-radius: 9px;
+  background: #ff604f;
+  color: #fff;
+  font-size: 15px;
+}
+
+.quick-submit-button:hover {
+  background: #ed4e3f;
+}
+
+/* Tablet */
+@media (max-width: 900px) {
+  .job-details-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .job-application-card {
+    position: static;
+  }
+
+  .job-apply-mobile-button {
+    display: flex;
+  }
+}
+
+/* Mobile */
+@media (max-width: 560px) {
+  .job-details-page {
+    padding: 16px 12px 30px;
+  }
+
+  .job-details-layout {
+    gap: 16px;
+  }
+
+  .job-info-card,
+  .job-application-card {
+    padding: 22px 18px;
+    border-radius: 14px;
+  }
+
+  .job-heading-row h1 {
+    font-size: 30px;
+  }
+
+  .job-company {
+    font-size: 16px;
+  }
+
+  .job-meta-row {
+    gap: 10px 14px;
+    font-size: 13px;
+  }
+
+  .job-content-section {
+    margin-bottom: 25px;
+  }
+
+  .job-content-section h2 {
+    font-size: 18px;
+  }
+
+  .job-overview-text,
+  .job-overview-text .public-job-content {
+    font-size: 14px;
+    line-height: 1.8;
+  }
+
+  .job-details-page .job-check-list > li,
+  .job-details-page .job-check-list > li > span:last-child {
+    font-size: 13px;
+    line-height: 1.75;
+  }
+
+  .quick-apply-header h2 {
+    font-size: 22px;
+  }
+}

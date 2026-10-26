@@ -253,48 +253,78 @@ function createPublicJobsRouter({ getDb, requireAdmin, requireRole }) {
   });
 
 
+
 router.post("/:id/apply", uploadResume, async (req, res) => {
-const {
-  name,
-  email,
-  phone,
-  country,
-  location,
-  experience,
-  message,
-  consent
-} = req.body;
-  if (!name?.trim() || !email?.trim() ||
-    !req.file || consent !== "true") {
-  return res.status(400).json({
-    error: "Name, email, CV and recruitment consent are required."
-  });
-}
+  const {
+    name,
+    email,
+    phone,
+    country,
+    postcode,
+    location,
+    experience,
+    message,
+    consent,
+  } = req.body;
+
+  if (!name?.trim() || !email?.trim() || !req.file || consent !== "true") {
+    return res.status(400).json({
+      error: "Name, email, CV and recruitment consent are required.",
+    });
+  }
+
   const cleanName = name.trim();
   const cleanEmail = email.trim().toLowerCase();
- const cleanPhone = (phone || "").trim();
-const cleanCountry = (country || "").trim();
-const cleanLocation = (location || "").trim();
+  const cleanPhone = (phone || "").trim();
+  const cleanCountry = (country || "").trim();
+  const cleanPostcode = (postcode || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+  const cleanLocation = (location || "").trim();
   const cleanExperience = (experience || "").trim();
   const cleanMessage = (message || "").trim();
+
+  if (!["United States", "United Kingdom"].includes(cleanCountry)) {
+    return res.status(400).json({
+      error: "Only United States and United Kingdom applications are accepted.",
+    });
+  }
+
+  const validUSPostcode = /^\d{5}(?:-\d{4})?$/.test(cleanPostcode);
+  const validUKPostcode =
+    /^(GIR 0AA|[A-Z]{1,2}\d[A-Z\d]? \d[A-Z]{2})$/.test(cleanPostcode);
+
+  if (
+    (cleanCountry === "United States" && !validUSPostcode) ||
+    (cleanCountry === "United Kingdom" && !validUKPostcode)
+  ) {
+    return res.status(400).json({
+      error:
+        cleanCountry === "United States"
+          ? "Enter a valid US ZIP code, such as 10001."
+          : "Enter a valid UK postcode, such as SW1A 1AA.",
+    });
+  }
 
   if (
     cleanName.length > 200 ||
     cleanEmail.length > 320 ||
     !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail) ||
     cleanPhone.length > 60 ||
+    cleanPostcode.length > 20 ||
     cleanLocation.length > 300 ||
     cleanExperience.length > 100 ||
     cleanMessage.length > 5000
   ) {
     return res.status(400).json({
-      error: "Please check your application details."
+      error: "Please check your application details.",
     });
   }
 
   if (!process.env.R2_BUCKET_NAME) {
     return res.status(500).json({
-      error: "CV storage is not configured."
+      error: "CV storage is not configured.",
     });
   }
 
@@ -310,7 +340,7 @@ const cleanLocation = (location || "").trim();
 
   if (!signatureValid) {
     return res.status(400).json({
-      error: "CV file content does not match its format."
+      error: "CV file content does not match its format.",
     });
   }
 
@@ -328,11 +358,10 @@ const cleanLocation = (location || "").trim();
 
     if (!job) {
       return res.status(404).json({
-        error: "This vacancy is not available."
+        error: "This vacancy is not available.",
       });
     }
 
-    // Save the CV in the existing R2 bucket under resumes/.
     resumeKey = "resumes/" + randomUUID() + extension;
 
     await r2.send(
@@ -340,88 +369,83 @@ const cleanLocation = (location || "").trim();
         Bucket: process.env.R2_BUCKET_NAME,
         Key: resumeKey,
         Body: file.buffer,
-        ContentType: file.mimetype
+        ContentType: file.mimetype,
       })
     );
 
     const applicationId = randomUUID();
     const resumeFileName = path.basename(file.originalname).slice(0, 200);
 
-    // Accept experience such as "5" or "5 years".
     const experienceMatch = cleanExperience.match(/\d+(\.\d+)?/);
     const experienceYears = experienceMatch
       ? Number(experienceMatch[0])
       : null;
 
-    // Keep candidate and application database changes atomic.
     db = await getDb();
     await db.query("BEGIN");
     transactionStarted = true;
 
-    // Create the candidate or update the existing candidate with this email.
-    // resumeFileUrl holds the R2 object key because the bucket may be private.
-const candidateResult = await db.query(
-  `INSERT INTO "Candidate" (
-    "id",
-    "name",
-    "email",
-    "phone",
-    "location",
-    "country",
-    "experienceYears",
-    "resumeFileName",
-    "resumeFileUrl",
-    "resumeMimeType",
-    "source",
-    "recruitmentConsent",
-    "consentedAt",
-    "privacyVersion",
-    "updatedAt",
-    "skills",
-    "preferredRoles",
-    "preferredLocations"
-  )
-  VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    'PUBLIC_JOB_APPLICATION', TRUE, NOW(),
-    'public-job-application-v1', NOW(),
-    ARRAY[]::TEXT[], ARRAY[]::TEXT[], ARRAY[]::TEXT[]
-  )
-  ON CONFLICT ("email") DO UPDATE SET
-    "name" = EXCLUDED."name",
-    "phone" = EXCLUDED."phone",
-    "location" = COALESCE(EXCLUDED."location", "Candidate"."location"),
-    "country" = COALESCE(EXCLUDED."country", "Candidate"."country"),
-    "experienceYears" = COALESCE(
-      EXCLUDED."experienceYears",
-      "Candidate"."experienceYears"
-    ),
-    "resumeFileName" = EXCLUDED."resumeFileName",
-    "resumeFileUrl" = EXCLUDED."resumeFileUrl",
-    "resumeMimeType" = EXCLUDED."resumeMimeType",
-    "recruitmentConsent" = TRUE,
-    "consentedAt" = NOW(),
-    "privacyVersion" = EXCLUDED."privacyVersion",
-    "updatedAt" = NOW()
-  RETURNING "id"`,
-  [
-    randomUUID(),
-    cleanName,
-    cleanEmail,
-    cleanPhone,
-    cleanLocation || null,
-    cleanCountry || null,
-    experienceYears,
-    resumeFileName,
-    resumeKey,
-    file.mimetype
-  ]
-);
+    const candidateResult = await db.query(
+      `INSERT INTO "Candidate" (
+        "id",
+        "name",
+        "email",
+        "phone",
+        "location",
+        "country",
+        "experienceYears",
+        "resumeFileName",
+        "resumeFileUrl",
+        "resumeMimeType",
+        "source",
+        "recruitmentConsent",
+        "consentedAt",
+        "privacyVersion",
+        "updatedAt",
+        "skills",
+        "preferredRoles",
+        "preferredLocations",
+        "postcode"
+      )
+      VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+        'PUBLIC_JOB_APPLICATION', TRUE, NOW(),
+        'public-job-application-v1', NOW(),
+        ARRAY[]::TEXT[], ARRAY[]::TEXT[], ARRAY[]::TEXT[], $11
+      )
+      ON CONFLICT ("email") DO UPDATE SET
+        "name" = EXCLUDED."name",
+        "phone" = EXCLUDED."phone",
+        "location" = COALESCE(EXCLUDED."location", "Candidate"."location"),
+        "country" = COALESCE(EXCLUDED."country", "Candidate"."country"),
+        "postcode" = COALESCE(EXCLUDED."postcode", "Candidate"."postcode"),
+        "experienceYears" = COALESCE(
+          EXCLUDED."experienceYears",
+          "Candidate"."experienceYears"
+        ),
+        "resumeFileName" = EXCLUDED."resumeFileName",
+        "resumeFileUrl" = EXCLUDED."resumeFileUrl",
+        "resumeMimeType" = EXCLUDED."resumeMimeType",
+        "recruitmentConsent" = TRUE,
+        "consentedAt" = NOW(),
+        "privacyVersion" = EXCLUDED."privacyVersion",
+        "updatedAt" = NOW()
+      RETURNING "id"`,
+      [
+        randomUUID(),
+        cleanName,
+        cleanEmail,
+        cleanPhone,
+        cleanLocation || null,
+        cleanCountry,
+        experienceYears,
+        resumeFileName,
+        resumeKey,
+        file.mimetype,
+        cleanPostcode,
+      ]
+    );
 
-
-    const candidateId = candidateResult.rows[0].id;
-
-    // Preserve the existing job-specific application history.
     await db.query(
       `INSERT INTO "PublicJobApplication" (
         "id",
@@ -436,9 +460,10 @@ const candidateResult = await db.query(
         "resumeKey",
         "resumeFileName",
         "resumeMimeType",
-        "consent"
+        "consent",
+        "postcode"
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       [
         applicationId,
         job.id,
@@ -452,7 +477,8 @@ const candidateResult = await db.query(
         resumeKey,
         resumeFileName,
         file.mimetype,
-        true
+        true,
+        cleanPostcode,
       ]
     );
 
@@ -462,7 +488,7 @@ const candidateResult = await db.query(
     return res.status(201).json({
       success: true,
       applicationId,
-      message: "Application submitted successfully."
+      message: "Application submitted successfully.",
     });
   } catch (error) {
     if (db && transactionStarted) {
@@ -473,7 +499,7 @@ const candidateResult = await db.query(
       await r2.send(
         new DeleteObjectCommand({
           Bucket: process.env.R2_BUCKET_NAME,
-          Key: resumeKey
+          Key: resumeKey,
         })
       ).catch((cleanupError) => {
         console.error("CV CLEANUP ERROR:", cleanupError);
@@ -483,7 +509,7 @@ const candidateResult = await db.query(
     console.error("JOB APPLICATION ERROR:", error);
 
     return res.status(500).json({
-      error: "Unable to submit application. Please try again."
+      error: "Unable to submit application. Please try again.",
     });
   } finally {
     if (db) {
@@ -492,7 +518,7 @@ const candidateResult = await db.query(
   }
 });
 
-  return router;
+return router;
 }
 
 module.exports = { createPublicJobsRouter };

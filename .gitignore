@@ -26,3 +26,12 @@ Thumbs.db
 .agents/
 .claude/
 .windsurf/
+
+# Database exports and local credential backups
+db-backups/
+admin-password-backup-*.json
+*-password-backup*.json
+*.dump
+*.sql
+ra-backup-*/
+.phase1-backups/

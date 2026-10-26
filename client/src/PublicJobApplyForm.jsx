@@ -3,35 +3,7 @@ import { useState } from "react";
 
 const COUNTRIES = [
   { name: "United States", flag: "🇺🇸", code: "+1" },
-  { name: "India", flag: "🇮🇳", code: "+91" },
   { name: "United Kingdom", flag: "🇬🇧", code: "+44" },
-  { name: "Canada", flag: "🇨🇦", code: "+1" },
-  { name: "Australia", flag: "🇦🇺", code: "+61" },
-  { name: "United Arab Emirates", flag: "🇦🇪", code: "+971" },
-  { name: "Saudi Arabia", flag: "🇸🇦", code: "+966" },
-  { name: "Singapore", flag: "🇸🇬", code: "+65" },
-  { name: "Germany", flag: "🇩🇪", code: "+49" },
-  { name: "France", flag: "🇫🇷", code: "+33" },
-  { name: "Ireland", flag: "🇮🇪", code: "+353" },
-  { name: "Netherlands", flag: "🇳🇱", code: "+31" },
-  { name: "New Zealand", flag: "🇳🇿", code: "+64" },
-  { name: "South Africa", flag: "🇿🇦", code: "+27" },
-  { name: "Pakistan", flag: "🇵🇰", code: "+92" },
-  { name: "Bangladesh", flag: "🇧🇩", code: "+880" },
-  { name: "Philippines", flag: "🇵🇭", code: "+63" },
-  { name: "Nigeria", flag: "🇳🇬", code: "+234" },
-  { name: "China", flag: "🇨🇳", code: "+86" },
-  { name: "Japan", flag: "🇯🇵", code: "+81" },
-  { name: "Brazil", flag: "🇧🇷", code: "+55" },
-  { name: "Mexico", flag: "🇲🇽", code: "+52" },
-  { name: "Spain", flag: "🇪🇸", code: "+34" },
-  { name: "Italy", flag: "🇮🇹", code: "+39" },
-  { name: "Switzerland", flag: "🇨🇭", code: "+41" },
-  { name: "Malaysia", flag: "🇲🇾", code: "+60" },
-  { name: "Indonesia", flag: "🇮🇩", code: "+62" },
-  { name: "Sri Lanka", flag: "🇱🇰", code: "+94" },
-  { name: "Nepal", flag: "🇳🇵", code: "+977" },
-  { name: "Kenya", flag: "🇰🇪", code: "+254" },
 ];
 
 function normalizePhone(phone, selectedCountry) {
@@ -39,7 +11,6 @@ function normalizePhone(phone, selectedCountry) {
 
   if (!input) return "";
 
-  // An explicitly international number takes precedence over the dropdown.
   if (input.startsWith("+")) {
     const digits = input.slice(1).replace(/\D/g, "");
     return digits ? `+${digits}` : "";
@@ -48,20 +19,54 @@ function normalizePhone(phone, selectedCountry) {
   const digits = input.replace(/\D/g, "");
   if (!digits) return "";
 
-  const dialCode = selectedCountry?.code || "";
-  const dialDigits = dialCode.replace(/\D/g, "");
+  const dialDigits = selectedCountry.code.replace(/\D/g, "");
 
-  // Avoid duplicating the selected code when it was pasted without "+".
   if (
-    dialDigits &&
     digits.startsWith(dialDigits) &&
     digits.length > dialDigits.length + 6
   ) {
     return `+${digits}`;
   }
 
-  // A national-format number is interpreted using the selected country.
-  return dialCode ? `${dialCode}${digits}` : digits;
+  return `${selectedCountry.code}${digits}`;
+}
+
+function normalizePostcode(value) {
+  return value.trim().toUpperCase().replace(/\s+/g, " ");
+}
+
+function inferCountryFromPostcode(value) {
+  const postcode = normalizePostcode(value);
+
+  if (/^\d{5}(?:-\d{4})?$/.test(postcode)) {
+    return "United States";
+  }
+
+  if (
+    /^(?:GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})$/.test(
+      postcode.replace(/\s/g, "")
+    )
+  ) {
+    return "United Kingdom";
+  }
+
+  return "";
+}
+
+function isValidPostcode(value, country) {
+  const postcode = normalizePostcode(value);
+
+  if (country === "United States") {
+    return /^\d{5}(?:-\d{4})?$/.test(postcode);
+  }
+
+  if (country === "United Kingdom") {
+    return /^(?:GIR 0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})$/.test(
+      postcode
+    );
+  }
+
+  return false;
 }
 
 export default function PublicJobApplyForm({ job }) {
@@ -70,6 +75,7 @@ export default function PublicJobApplyForm({ job }) {
     email: "",
     phone: "",
     country: "United States",
+    postcode: "",
     location: "",
     experience: "",
     message: "",
@@ -88,14 +94,44 @@ export default function PublicJobApplyForm({ job }) {
   function updateField(event) {
     const { name, value } = event.target;
 
+    if (name === "postcode") {
+      const postcode = normalizePostcode(value);
+      const detectedCountry = inferCountryFromPostcode(postcode);
+
+      setForm((previous) => ({
+        ...previous,
+        postcode,
+        ...(detectedCountry ? { country: detectedCountry } : {}),
+      }));
+
+      setNotice("");
+      return;
+    }
+
     setForm((previous) => ({
       ...previous,
       [name]: value,
     }));
+
+    setNotice("");
   }
 
   async function submit(event) {
     event.preventDefault();
+
+    if (!form.postcode.trim()) {
+      setNotice("Please enter your ZIP code or UK postcode.");
+      return;
+    }
+
+    if (!isValidPostcode(form.postcode, form.country)) {
+      setNotice(
+        form.country === "United States"
+          ? "Enter a valid US ZIP code, such as 10001 or 10001-1234."
+          : "Enter a valid UK postcode, such as SW1A 1AA."
+      );
+      return;
+    }
 
     if (!resume) {
       setNotice("Please upload your resume.");
@@ -108,12 +144,12 @@ export default function PublicJobApplyForm({ job }) {
     }
 
     if (
-      resume.size > 5 * 1024 * 1024 ||
-      !/\.(pdf|docx)$/i.test(resume.name)
-    ) {
-      setNotice("Only PDF or DOCX files up to 5 MB are allowed.");
-      return;
-    }
+  resume.size > 5 * 1024 * 1024 ||
+  !/\.(pdf|docx)$/i.test(resume.name)
+) {
+  setNotice("Only PDF or DOCX files up to 5 MB are allowed.");
+  return;
+}
 
     setBusy(true);
     setNotice("");
@@ -125,7 +161,7 @@ export default function PublicJobApplyForm({ job }) {
         body.append(key, value);
       });
 
-      // Submit a normalized international phone number.
+      body.set("postcode", normalizePostcode(form.postcode));
       body.set("phone", normalizePhone(form.phone, selectedCountry));
       body.set("country", selectedCountry.name);
 
@@ -227,9 +263,24 @@ export default function PublicJobApplyForm({ job }) {
       </label>
 
       <label className="quick-field">
-        <span>
-          Phone number <small>(optional)</small>
-        </span>
+        <span>ZIP code / Postcode <b>*</b></span>
+        <input
+          name="postcode"
+          type="text"
+          placeholder={
+            form.country === "United States"
+              ? "e.g. 10001"
+              : "e.g. SW1A 1AA"
+          }
+          autoComplete="postal-code"
+          value={form.postcode}
+          onChange={updateField}
+          required
+        />
+      </label>
+
+      <label className="quick-field">
+        <span>Phone number <small>(optional)</small></span>
         <div className="phone-input-row">
           <span className="phone-dial-code" aria-label="Selected dialing code">
             {selectedCountry.code}
@@ -243,9 +294,6 @@ export default function PublicJobApplyForm({ job }) {
             onChange={updateField}
           />
         </div>
-        <small>
-          Include + and the country code when pasting an international number.
-        </small>
       </label>
 
       <label className="quick-field">
@@ -305,3 +353,4 @@ export default function PublicJobApplyForm({ job }) {
     </form>
   );
 }
+

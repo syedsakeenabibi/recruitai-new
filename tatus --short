@@ -1,0 +1,220 @@
+[1mdiff --git a/server.js b/server.js[m
+[1mindex a15e568..72c0026 100644[m
+[1m--- a/server.js[m
+[1m+++ b/server.js[m
+[36m@@ -1,6 +1,6 @@[m
+[31m-[m
+ require("dotenv").config();[m
+[31m-[m
+[32m+[m[32mconst { createPublicJobsRouter } = require("./modules/publicJobs");[m
+[32m+[m[32mconst { randomUUID } = require("node:crypto");[m
+ const express = require("express");[m
+ const cors = require("cors");[m
+ const { Client } = require("pg");[m
+[36m@@ -9,124 +9,118 @@[m [mconst nodemailer = require("nodemailer");[m
+ const multer = require("multer");[m
+ const path = require("path");[m
+ const fs = require("fs");[m
+[32m+[m[32mconst bcrypt = require("bcryptjs");[m
+[32m+[m[32mconst jwt = require("jsonwebtoken");[m
+[32m+[m[32mconst cookieParser = require("cookie-parser");[m
+[32m+[m[32mconst { isSessionRevoked, revokeSession } = require("./modules/auth/sessionRevocation");[m
+[32m+[m[32mconst { requireRoles } = require("./modules/auth/requireRoles");[m
+[32m+[m[32mconst { createBdmRouter } = require("./modules/bdm");[m
+[32m+[m[32mconst { createRaRouter } = require("./modules/ra");[m
+[32m+[m[32mconst { createRecruitmentRouter } = require("./modules/recruitment");[m
+[32m+[m[32mconst { discoverAtsJobs } = require("./modules/ra/sources/atsSources");[m
+[32m+[m
+[32m+[m
+ const {[m
+   S3Client,[m
+   PutObjectCommand,[m
+   DeleteObjectCommand,[m
+[31m-} = require("@aws-sdk/client-s3");[m
+[32m+[m[32m  GetObjectCommand,[m
+[32m+[m[32m} = require("@aws-sdk/client-s3");[m[41m [m
+[32m+[m
+ [m
+ const app = express();[m
+[31m-app.use(cors());[m
+[32m+[m[32mapp.use([m
+[32m+[m[32m  cors({[m
+[32m+[m[32m    origin: true,[m
+[32m+[m[32m    credentials: true,[m
+[32m+[m[32m  })[m
+[32m+[m[32m);[m
+ app.use(express.json({ limit: "2mb" }));[m
+[31m-[m
+[32m+[m[32mapp.use(cookieParser());[m
+ app.use((req, res, next) => {[m
+[31m-  console.log([m
+[31m-    new Date().toISOString(),[m
+[31m-    req.method,[m
+[31m-    req.path,[m
+[31m-    "Origin:",[m
+[31m-    req.headers.origin || "no-origin"[m
+[31m-  );[m
+[31m-  next();[m
+[32m+[m[32m  console.log([m
+[32m+[m[32m    new Date().toISOString(),[m
+[32m+[m[32m    req.method,[m
+[32m+[m[32m    req.path,[m
+[32m+[m[32m    "Origin:",[m
+[32m+[m[32m    req.headers.origin || "no-origin"[m
+[32m+[m[32m  );[m
+[32m+[m[32m  next();[m
+ });[m
+[31m-[m
+ const PORT = process.env.PORT || 4000;[m
+ // PRIVATE CV STORAGE - CLOUDFLARE R2[m
+[31m-[m
+ const r2 = new S3Client({[m
+[31m-  region: "auto",[m
+[31m-  endpoint: process.env.R2_ENDPOINT,[m
+[31m-  credentials: {[m
+[31m-    accessKeyId: process.env.R2_ACCESS_KEY_ID,[m
+[31m-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,[m
+[31m-  },[m
+[32m+[m[32m  region: "auto",[m
+[32m+[m[32m  endpoint: process.env.R2_ENDPOINT,[m
+[32m+[m[32m  credentials: {[m
+[32m+[m[32m    accessKeyId: process.env.R2_ACCESS_KEY_ID,[m
+[32m+[m[32m    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,[m
+[32m+[m[32m  },[m
+ });[m
+[31m-[m
+ const storage = multer.memoryStorage();[m
+[31m-[m
+ const upload = multer({[m
+[31m-  storage,[m
+[31m-[m
+[31m-  limits: {[m
+[31m-    fileSize: 5 * 1024 * 1024, // Maximum 5 MB[m
+[31m-  },[m
+[31m-[m
+[31m-  fileFilter: (req, file, cb) => {[m
+[31m-    const allowedTypes = [[m
+[31m-      "application/pdf",[m
+[31m-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",[m
+[31m-    ];[m
+[31m-[m
+[31m-    const allowedExtensions = [".pdf", ".docx"];[m
+[31m-    const extension = path.extname(file.originalname).toLowerCase();[m
+[31m-[m
+[31m-    if ([m
+[31m-      allowedTypes.includes(file.mimetype) &&[m
+[31m-      allowedExtensions.includes(extension)[m
+[31m-    ) {[m
+[31m-      return cb(null, true);[m
+[31m-    }[m
+[31m-[m
+[31m-    cb(new Error("Only PDF and DOCX resumes are allowed."));[m
+[31m-  },[m
+[32m+[m[32m  storage,[m
+[32m+[m[32m  limits: {[m
+[32m+[m[32m    fileSize: 5 * 1024 * 1024, // Maximum 5 MB[m
+[32m+[m[32m  },[m
+[32m+[m[32m  fileFilter: (req, file, cb) => {[m
+[32m+[m[32m    const allowedTypes = [[m
+[32m+[m[32m      "application/pdf",[m
+[32m+[m[32m      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",[m
+[32m+[m[32m    ];[m
+[32m+[m[32m    const allowedExtensions = [".pdf", ".docx"];[m
+[32m+[m[32m    const extension = path.extname(file.originalname).toLowerCase();[m
+[32m+[m[32m    if ([m
+[32m+[m[32m      allowedTypes.includes(file.mimetype) &&[m
+[32m+[m[32m      allowedExtensions.includes(extension)[m
+[32m+[m[32m    ) {[m
+[32m+[m[32m      return cb(null, true);[m
+[32m+[m[32m    }[m
+[32m+[m[32m    cb(new Error("Only PDF and DOCX resumes are allowed."));[m
+[32m+[m[32m  },[m
+ });[m
+[31m-[m
+ const openai = new OpenAI({[m
+[31m-  apiKey: process.env.OPENAI_API_KEY,[m
+[32m+[m[32m  apiKey: process.env.OPENAI_API_KEY,[m
+ });[m
+[31m-[m
+ function normalize(value = "") {[m
+[31m-  return String(value).toLowerCase().trim();[m
+[32m+[m[32m  return String(value).toLowerCase().trim();[m
+ }[m
+[31m-[m
+ function containsValue(candidateValue, requirement) {[m
+[31m-  if (!candidateValue || !requirement) return false;[m
+[31m-[m
+[31m-  return normalize(candidateValue).includes(normalize(requirement));[m
+[32m+[m[32m  if (!candidateValue || !requirement) return false;[m
+[32m+[m[32m  return normalize(candidateValue).includes(normalize(requirement));[m
+ }[m
+[31m-[m
+ function skillMatches(candidateSkills = [], requiredSkill) {[m
+[31m-  const required = normalize(requiredSkill);[m
+[31m-[m
+[31m-  return candidateSkills.some((skill) => {[m
+[31m-    const current = normalize(skill);[m
+[31m-    return current === required ||[m
+[31m-           current.includes(required) ||[m
+[31m-           required.includes(current);[m
+[31m-  });[m
+[32m+[m[32m  const required = normalize(requiredSkill);[m
+[32m+[m[32m  return candidateSkills.some((skill) => {[m
+[32m+[m[32m    const current = normalize(skill);[m
+[32m+[m[32m    return current === required ||[m
+[32m+[m[32m           current.includes(required) ||[m
+[32m+[m[32m           required.includes(current);[m
+[32m+[m[32m  });[m
+ }[m
+[31m-[m
+[31m-[m
+ // STEP 1 — AI understands ANY JD[m
+ async function extractJobRequirements(jd) {[m
+[31m-[m
+[31m-  const response = await openai.responses.create({[m
+[31m-    model: "gpt-5.6-luna",[m
+[31m-[m
+[31m-    input: [[m
+[31m-      {[m
+[31m-        role: "system",[m
+[31m-        content: `[m
+[32m+[m[32m  const response = await openai.responses.create({[m
+[32m+[m[32m    model: "gpt-5.6-luna",[m
+[32m+[m[32m    input: [[m
+[32m+[m[32m      {[m
+[32m+[m[32m        role: "system",[m
+[32m+[m[32m        content: `[m
+ You are the job-description understanding engine for a recruitment system.[m
+[31m-[m
+ Read the supplied job description and extract ONLY job-related requirements.[m
+[31m-[m
+ Return valid JSON with exactly this structure:[m
+[31m-[m
+ {[m
+[31m-  "jobTitle": "",[m
+[31m-  "industry": "",[m
+[31m-  "location": "",[m
+[31m-  "minimumExperience": null,[m
+[31m-  "requiredSkills": [],[m
+[31m-  "preferredSkills": [],[m
+[31m-  "education": "",[m
+[31m-  "responsibilities": [],[m
+[31m-  "keywords": [][m
+[32m+[m[32m  "jobTitle": "",[m
+[32m+[m[32m  "industry": "",[m
+[32m+[m[32m  "location": "",[m
+[32m+[m[32m  "minimumExperience": null,[m
+[32m+[m[32m  "requiredSkills": [],[m
+[32m+[m[32m  "preferredSkills": [],[m
+[32m+[m[32m  "education": "",[m
+[32m+[m[32m  "responsibilities": [],[m
+[32m+[m[32m  "keywords": [][m
+ }[m
+[31m-[m
+ Rules:[m
+[31m-[m
+ - requiredSkills = explicit or clearly mandatory skills.[m
+ - preferredSkills = optional, desirable, plus, preferred or nice-to-have skills.[m
+ - minimumExperience must be a number representing years, or null.[m
+[36m@@ -134,330 +128,771 @@[m [mRules:[m
+ - 

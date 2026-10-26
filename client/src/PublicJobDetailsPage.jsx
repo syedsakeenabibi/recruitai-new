@@ -3,20 +3,37 @@ import { useEffect, useState } from "react";
 import PublicJobApplyForm from "./PublicJobApplyForm";
 import "./PublicJobDetailsPage.css";
 
+
 function getItems(value) {
   if (!value) return [];
-  if (Array.isArray(value)) return value.filter(Boolean);
 
-  return String(value)
-    .split(/\n|•/)
-    .map(item => item.replace(/^[\s\-–*]+/, "").trim())
-    .filter(Boolean);
+  const cleanItem = (item) =>
+    String(item)
+      .replace(/^#{1,6}\s*/, "")
+      .replace(/\*\*(.*?)\*\*/g, "$1")
+      .replace(/__(.*?)__/g, "$1")
+      .replace(/^[\s\-–*•]+/, "")
+      .trim();
+
+  const items = Array.isArray(value)
+    ? value
+    : String(value).split(/\r?\n|•/);
+
+  return items
+    .map(cleanItem)
+    .filter(
+      (item) =>
+        item &&
+        !/^job description:?$/i.test(item) &&
+        !/^key responsibilities:?$/i.test(item) &&
+        !/^responsibilities:?$/i.test(item) &&
+        !/^requirements(?:\s*\/\s*qualifications)?:?$/i.test(item) &&
+        !/^what we offer:?$/i.test(item) &&
+        !/^benefits:?$/i.test(item) &&
+        !/^apply now:?$/i.test(item)
+    );
 }
 
-// Extract the UUID from URLs such as:
-// /jobs/UUID-construction-laborer
-// /jobs/UUID-cnc-machinist
-// /jobs/UUID-construction-laborer#apply
 function getJobIdFromUrl() {
   const pathSegment = decodeURIComponent(
     window.location.pathname.split("/").filter(Boolean).pop() || ""
@@ -27,6 +44,86 @@ function getJobIdFromUrl() {
   );
 
   return uuidMatch ? uuidMatch[0] : pathSegment;
+}
+
+
+function JobContent({ value }) {
+  if (!value) return null;
+
+  const lines = String(value).replace(/\r\n?/g, "\n").split("\n");
+  const blocks = [];
+  let paragraph = [];
+  let list = [];
+
+  const cleanText = (text) =>
+    text
+      .replace(/^#{1,6}\s*/, "")
+      .replace(/\*\*(.*?)\*\*/g, "$1")
+      .replace(/__(.*?)__/g, "$1")
+      .trim();
+
+  const flushParagraph = () => {
+    if (paragraph.length) {
+      blocks.push(
+        <p key={`p-${blocks.length}`}>
+          {cleanText(paragraph.join(" "))}
+        </p>
+      );
+      paragraph = [];
+    }
+  };
+
+  const flushList = () => {
+    if (list.length) {
+      blocks.push(
+        <ul key={`ul-${blocks.length}`}>
+          {list.map((item, index) => (
+            <li key={index}>{cleanText(item)}</li>
+          ))}
+        </ul>
+      );
+      list = [];
+    }
+  };
+
+  lines.forEach((raw) => {
+    const line = raw.trim();
+
+    if (!line) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    const heading = line.match(/^#{1,6}\s+(.+)$/);
+
+    if (heading) {
+      flushParagraph();
+      flushList();
+      blocks.push(
+        <h3 key={`h-${blocks.length}`}>
+          {cleanText(heading[1])}
+        </h3>
+      );
+      return;
+    }
+
+    const item = line.match(/^(?:[-*•]|\d+[.)])\s+(.+)$/);
+
+    if (item) {
+      flushParagraph();
+      list.push(item[1]);
+      return;
+    }
+
+    flushList();
+    paragraph.push(line);
+  });
+
+  flushParagraph();
+  flushList();
+
+  return <div className="public-job-content">{blocks}</div>;
 }
 
 export default function PublicJobDetailsPage({ onJobs }) {
@@ -45,8 +142,7 @@ export default function PublicJobDetailsPage({ onJobs }) {
 
       try {
         const response = await fetch(
-          `/api/public-jobs/${encodeURIComponent(id)}`,
-          { credentials: "include" }
+          `/api/public-jobs/${encodeURIComponent(id)}`
         );
 
         const data = await response.json().catch(() => ({}));
@@ -94,12 +190,12 @@ export default function PublicJobDetailsPage({ onJobs }) {
 
     document.getElementById("job-application")?.scrollIntoView({
       behavior: "smooth",
-      block: "start"
+      block: "start",
     });
 
-    document.querySelector("#job-application input")?.focus({
-      preventScroll: true
-    });
+    document
+      .querySelector("#job-application input:not([type='hidden'])")
+      ?.focus({ preventScroll: true });
   }
 
   useEffect(() => {
@@ -107,7 +203,7 @@ export default function PublicJobDetailsPage({ onJobs }) {
       const timer = window.setTimeout(() => {
         document.getElementById("job-application")?.scrollIntoView({
           behavior: "smooth",
-          block: "start"
+          block: "start",
         });
       }, 200);
 
@@ -118,7 +214,9 @@ export default function PublicJobDetailsPage({ onJobs }) {
   if (loading) {
     return (
       <main className="job-details-page">
-        <p>Loading job details...</p>
+        <div className="job-details-container">
+          <p role="status">Loading job details...</p>
+        </div>
       </main>
     );
   }
@@ -127,7 +225,11 @@ export default function PublicJobDetailsPage({ onJobs }) {
     return (
       <main className="job-details-page">
         <div className="job-details-container">
-          <button className="job-back-link" onClick={onJobs}>
+          <button
+            type="button"
+            className="job-back-link"
+            onClick={onJobs}
+          >
             ← Back to all jobs
           </button>
           <p role="alert">{error || "Job not found."}</p>
@@ -147,7 +249,11 @@ export default function PublicJobDetailsPage({ onJobs }) {
   return (
     <main className="job-details-page">
       <div className="job-details-container">
-        <button className="job-back-link" onClick={onJobs}>
+        <button
+          type="button"
+          className="job-back-link"
+          onClick={onJobs}
+        >
           <span aria-hidden="true">←</span> Back to all jobs
         </button>
 
@@ -156,7 +262,7 @@ export default function PublicJobDetailsPage({ onJobs }) {
             <span className="job-status-pill">Open</span>
 
             <div className="job-heading-row">
-              <div>
+              <div className="job-heading-main">
                 <h1>{job.title}</h1>
                 <p className="job-company">{job.companyName}</p>
               </div>
@@ -197,7 +303,9 @@ export default function PublicJobDetailsPage({ onJobs }) {
 
             <section className="job-content-section">
               <h2>Job Overview</h2>
-              <p className="job-overview-text">{overview}</p>
+             <div className="job-overview-text">
+  <JobContent value={overview} />
+</div>
             </section>
 
             {responsibilities.length > 0 && (
@@ -207,7 +315,7 @@ export default function PublicJobDetailsPage({ onJobs }) {
                   {responsibilities.map((item, index) => (
                     <li key={index}>
                       <span aria-hidden="true">✓</span>
-                      {item}
+                      <span>{item}</span>
                     </li>
                   ))}
                 </ul>
@@ -221,7 +329,7 @@ export default function PublicJobDetailsPage({ onJobs }) {
                   {requirements.map((item, index) => (
                     <li key={index}>
                       <span aria-hidden="true">✓</span>
-                      {item}
+                      <span>{item}</span>
                     </li>
                   ))}
                 </ul>
@@ -235,7 +343,7 @@ export default function PublicJobDetailsPage({ onJobs }) {
                   {benefits.map((item, index) => (
                     <li key={index}>
                       <span aria-hidden="true">✓</span>
-                      {item}
+                      <span>{item}</span>
                     </li>
                   ))}
                 </ul>
@@ -243,6 +351,7 @@ export default function PublicJobDetailsPage({ onJobs }) {
             )}
 
             <button
+              type="button"
               className="job-apply-mobile-button"
               onClick={handleApply}
             >
@@ -253,6 +362,7 @@ export default function PublicJobDetailsPage({ onJobs }) {
           <section
             className="job-application-card"
             id="job-application"
+            aria-label="Quick Apply"
           >
             <PublicJobApplyForm job={job} />
           </section>
@@ -261,3 +371,4 @@ export default function PublicJobDetailsPage({ onJobs }) {
     </main>
   );
 }
+

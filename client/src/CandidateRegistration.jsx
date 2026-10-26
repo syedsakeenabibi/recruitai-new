@@ -1,51 +1,49 @@
 import { useState } from "react";
 import FusionNavbar from "./FusionNavbar";
 
-const countries = [
-  "Australia", "Austria", "Belgium", "Brazil", "Canada", "China",
-  "Denmark", "Finland", "France", "Germany", "India", "Ireland",
-  "Italy", "Japan", "Netherlands", "New Zealand", "Norway", "Poland",
-  "Portugal", "Singapore", "South Africa", "South Korea", "Spain",
-  "Sweden", "Switzerland", "United Arab Emirates", "United Kingdom",
-  "United States"
-];
+const countries = ["United Kingdom", "United States"];
 
 const countryCodes = {
-  Australia: "+61",
-  Austria: "+43",
-  Belgium: "+32",
-  Brazil: "+55",
-  Canada: "+1",
-  China: "+86",
-  Denmark: "+45",
-  Finland: "+358",
-  France: "+33",
-  Germany: "+49",
-  India: "+91",
-  Ireland: "+353",
-  Italy: "+39",
-  Japan: "+81",
-  Netherlands: "+31",
-  "New Zealand": "+64",
-  Norway: "+47",
-  Poland: "+48",
-  Portugal: "+351",
-  Singapore: "+65",
-  "South Africa": "+27",
-  "South Korea": "+82",
-  Spain: "+34",
-  Sweden: "+46",
-  Switzerland: "+41",
-  "United Arab Emirates": "+971",
   "United Kingdom": "+44",
-  "United States": "+1"
+  "United States": "+1",
 };
+
+function inferCountryFromPostcode(value) {
+  const postcode = value.trim().toUpperCase().replace(/\s+/g, " ");
+
+  // US ZIP or ZIP+4. This suggests the country; it does not verify an address.
+  if (/^\d{5}(?:-\d{4})?$/.test(postcode)) return "United States";
+
+  // Common UK postcode formats, including GIR 0AA.
+  if (
+    /^(?:GIR\s?0AA|(?:[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}))$/.test(postcode)
+  ) {
+    return "United Kingdom";
+  }
+
+  return "";
+}
+
+function isValidPostcode(value, country) {
+  const postcode = value.trim().toUpperCase().replace(/\s+/g, " ");
+
+  if (country === "United States") {
+    return /^\d{5}(?:-\d{4})?$/.test(postcode);
+  }
+
+  if (country === "United Kingdom") {
+    return /^(?:GIR\s?0AA|(?:[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}))$/.test(postcode);
+  }
+
+  return false;
+}
 
 const initialForm = {
   name: "",
   email: "",
   phone: "",
   country: "",
+  postcode: "",
   location: "",
   currentTitle: "",
   industry: "",
@@ -55,7 +53,7 @@ const initialForm = {
   preferredLocations: "",
   workPreference: "",
   employmentType: "",
-  recruitmentConsent: false
+  recruitmentConsent: false,
 };
 
 function CandidateRegistration({
@@ -68,7 +66,7 @@ function CandidateRegistration({
   onIndustries,
   onAbout,
   onContact,
-  onJoinTalent
+  onJoinTalent,
 }) {
   const [form, setForm] = useState({ ...initialForm });
   const [resume, setResume] = useState(null);
@@ -79,27 +77,47 @@ function CandidateRegistration({
   function handleChange(event) {
     const { name, value, type, checked } = event.target;
 
-    setForm(current => ({
-      ...current,
-      [name]: type === "checkbox" ? checked : value
-    }));
+    setForm((current) => {
+      const next = {
+        ...current,
+        [name]: type === "checkbox" ? checked : value,
+      };
+
+      if (name === "postcode") {
+        const inferredCountry = inferCountryFromPostcode(value);
+        if (inferredCountry) next.country = inferredCountry;
+      }
+
+      return next;
+    });
+    setError("");
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
-
     setError("");
     setMessage("");
+
+    if (!countries.includes(form.country)) {
+      setError("Please select United States or United Kingdom.");
+      return;
+    }
+
+    if (!isValidPostcode(form.postcode, form.country)) {
+      setError(
+        form.country === "United Kingdom"
+          ? "Enter a valid UK postcode, for example SW1A 1AA."
+          : "Enter a valid US ZIP code, for example 10001 or 10001-1234."
+      );
+      return;
+    }
 
     if (!resume) {
       setError("Please upload your resume/CV.");
       return;
     }
 
-    if (
-      resume.size > 5 * 1024 * 1024 ||
-      !/\.(pdf|docx)$/i.test(resume.name)
-    ) {
+    if (resume.size > 5 * 1024 * 1024 || !/\.(pdf|docx)$/i.test(resume.name)) {
       setError("Please upload a PDF or DOCX file up to 5 MB.");
       return;
     }
@@ -109,15 +127,17 @@ function CandidateRegistration({
       return;
     }
 
-    if (!form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.country) {
+    if (
+      !form.name.trim() ||
+      !form.email.trim() ||
+      !form.phone.trim() ||
+      !form.country
+    ) {
       setError("Please complete your name, email, country and phone number.");
       return;
     }
 
     const formData = new FormData();
-
-    // Keep the existing backend field names and endpoint.
-    // Removed professional and job-preference fields remain empty.
     const submittedForm = {
       ...form,
       currentTitle: "",
@@ -127,44 +147,37 @@ function CandidateRegistration({
       preferredRoles: "",
       preferredLocations: "",
       workPreference: "",
-      employmentType: ""
+      employmentType: "",
     };
 
     Object.entries(submittedForm).forEach(([key, value]) => {
       formData.append(key, String(value));
     });
 
-    if (form.phone) {
-      const fullPhone = `${countryCodes[form.country] || ""}${form.phone
-        .replace(/\s+/g, "")
-        .replace(/^0+/, "")}`;
-
-      formData.set("phone", fullPhone);
-    }
-
+    const rawPhone = form.phone.trim();
+    const fullPhone = rawPhone.startsWith("+")
+      ? `+${rawPhone.slice(1).replace(/\D/g, "")}`
+      : `${countryCodes[form.country]}${rawPhone.replace(/\D/g, "").replace(/^0+/, "")}`;
+    formData.set("phone", fullPhone);
+    formData.set("country", form.country);
+    formData.set("postcode", form.postcode.trim().toUpperCase());
     formData.append("resume", resume);
 
     try {
       setSubmitting(true);
-
       const response = await fetch("/api/candidates/register", {
         method: "POST",
-        body: formData
+        body: formData,
       });
-
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
         throw new Error(data.error || "Candidate registration failed.");
       }
 
-      setMessage(
-        "Thank you! Your profile and CV have been submitted successfully."
-      );
-
+      setMessage("Thank you! Your profile and CV have been submitted successfully.");
       setForm({ ...initialForm });
       setResume(null);
-
       const fileInput = document.getElementById("candidate-resume");
       if (fileInput) fileInput.value = "";
     } catch (err) {
@@ -189,55 +202,45 @@ function CandidateRegistration({
       />
 
       <div className="registration-container">
+        <div className="registration-heading">
+          <span className="eyebrow">FUSION TALENT NETWORK</span>
+          <h1>
+            Your Next Opportunity
+            <span className="registration-heading-accent">
+              May Be Just Around the Corner
+            </span>
+          </h1>
+          <p>
+            Upload your CV to join the Fusion Talent Network. We'll keep your
+            profile in mind for suitable future opportunities and contact you
+            when a relevant role becomes available.
+          </p>
+          <div className="talent-benefits">
+            <div className="talent-benefit">
+              <span className="talent-benefit-icon">▣</span>
+              <span>
+                <strong>Future opportunities</strong>
+                <small>Be considered for suitable roles</small>
+              </span>
+            </div>
+            <div className="talent-benefit">
+              <span className="talent-benefit-icon">✦</span>
+              <span>
+                <strong>Relevant opportunities</strong>
+                <small>Based on your skills and experience</small>
+              </span>
+            </div>
+            <div className="talent-benefit">
+              <span className="talent-benefit-icon">✉</span>
+              <span>
+                <strong>Stay connected</strong>
+                <small>Hear from our recruitment team</small>
+              </span>
+            </div>
+          </div>
+        </div>
 
-<div className="registration-heading">
-  <span className="eyebrow">FUSION TALENT NETWORK</span>
-
-  <h1>
-    Your Next Opportunity
-    <span className="registration-heading-accent">
-      May Be Just Around the Corner
-    </span>
-  </h1>
-
-  <p>
-    Upload your CV to join the Fusion Talent Network. We'll keep your
-    profile in mind for suitable future opportunities and contact you
-    when a relevant role becomes available.
-  </p>
-
-  <div className="talent-benefits">
-    <div className="talent-benefit">
-      <span className="talent-benefit-icon">▣</span>
-      <span>
-        <strong>Future opportunities</strong>
-        <small>Be considered for suitable roles</small>
-      </span>
-    </div>
-
-    <div className="talent-benefit">
-      <span className="talent-benefit-icon">✦</span>
-      <span>
-        <strong>Relevant opportunities</strong>
-        <small>Based on your skills and experience</small>
-      </span>
-    </div>
-
-    <div className="talent-benefit">
-      <span className="talent-benefit-icon">✉</span>
-      <span>
-        <strong>Stay connected</strong>
-        <small>Hear from our recruitment team</small>
-      </span>
-    </div>
-  </div>
-</div>
-
-
-        <form
-          className="candidate-registration-form"
-          onSubmit={handleSubmit}
-        >
+        <form className="candidate-registration-form" onSubmit={handleSubmit}>
           <div className="registration-section">
             <div className="section-title">
               <span className="section-number">01</span>
@@ -284,7 +287,7 @@ function CandidateRegistration({
                   required
                 >
                   <option value="">Select your country</option>
-                  {countries.map(country => (
+                  {countries.map((country) => (
                     <option key={country} value={country}>
                       {country}
                     </option>
@@ -310,6 +313,21 @@ function CandidateRegistration({
                 </div>
               </label>
 
+              <label>
+                ZIP Code / Postcode <span className="required">*</span>
+                <input
+                  type="text"
+                  name="postcode"
+                  value={form.postcode}
+                  onChange={handleChange}
+                  placeholder={
+                    form.country === "United Kingdom" ? "e.g. SW1A 1AA" : "e.g. 10001"
+                  }
+                  autoComplete="postal-code"
+                  required
+                />
+              </label>
+
               <label className="full-width-field">
                 City / State / Region (Optional)
                 <input
@@ -327,25 +345,20 @@ function CandidateRegistration({
           <div className="registration-section">
             <h2>Upload Your CV</h2>
             <p>
-              Attach your latest resume so our recruitment team
-              can review your experience.
+              Attach your latest resume so our recruitment team can review your
+              experience.
             </p>
-
             <label className="resume-upload">
               Resume / CV <span className="required">*</span>
               <input
                 id="candidate-resume"
                 type="file"
-                accept=".pdf,.docx"
-                onChange={event =>
-                  setResume(event.target.files?.[0] || null)
-                }
+                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={(event) => setResume(event.target.files?.[0] || null)}
                 required
               />
               <small>PDF or DOCX only. Maximum file size: 5 MB.</small>
-              {resume && (
-                <small>Selected file: {resume.name}</small>
-              )}
+              {resume && <small>Selected file: {resume.name}</small>}
             </label>
           </div>
 
@@ -359,11 +372,11 @@ function CandidateRegistration({
                 required
               />
               <span>
-                I consent to my information and CV being stored
-                and processed for recruitment purposes and to being
-                contacted about relevant employment opportunities.
-                I understand that I can request access to or deletion
-                of my information as described in the Privacy Notice.
+                I consent to my information and CV being stored and processed for
+                recruitment purposes and to being contacted about relevant
+                employment opportunities. I understand that I can request access
+                to or deletion of my information as described in the Privacy
+                Notice.
               </span>
             </label>
           </div>
@@ -373,7 +386,6 @@ function CandidateRegistration({
               {error}
             </div>
           )}
-
           {message && (
             <div className="registration-success" role="status">
               ✓ {message}
@@ -387,10 +399,9 @@ function CandidateRegistration({
           >
             {submitting ? "Submitting..." : "Submit CV"}
           </button>
-
           <p className="registration-note">
-            Quick registration. No need to complete lengthy
-            professional or job-preference forms.
+            Quick registration. No need to complete lengthy professional or
+            job-preference forms.
           </p>
         </form>
       </div>
