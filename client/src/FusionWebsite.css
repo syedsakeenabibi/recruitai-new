@@ -10664,12 +10664,12 @@ html {
     min-width: 0 !important;
     overflow-wrap: anywhere !important;
   }
-
   .public-jobs-grid .public-job-details dd {
     overflow-wrap: anywhere !important;
   }
+}
 
-
+/* Small-screen job cards */
 @media screen and (max-width: 380px) {
   .public-jobs-grid .public-job-card {
     padding: 14px !important;
