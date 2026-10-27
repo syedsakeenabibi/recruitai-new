@@ -265,7 +265,7 @@ router.post("/:id/apply", uploadResume, async (req, res) => {
     experience,
     message,
     consent,
-  } = req.body;
+} = req.body || {};
 
   if (!name?.trim() || !email?.trim() || !req.file || consent !== "true") {
     return res.status(400).json({
