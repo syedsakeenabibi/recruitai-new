@@ -29,24 +29,43 @@ const {
 
 
 const app = express();
+
+// Log requests before CORS so OPTIONS preflight requests are visible.
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+
+  console.log("[HTTP IN]", {
+    method: req.method,
+    path: req.path,
+    origin: req.headers.origin || "no-origin",
+    requestedMethod:
+      req.headers["access-control-request-method"] || "-",
+    requestedHeaders:
+      req.headers["access-control-request-headers"] || "-",
+  });
+
+  res.on("finish", () => {
+    console.log("[HTTP OUT]", {
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      durationMs: Date.now() - startedAt,
+    });
+  });
+
+  next();
+});
+
 app.use(
   cors({
     origin: true,
     credentials: true,
   })
 );
+
 app.use(express.json({ limit: "2mb" }));
 app.use(cookieParser());
-app.use((req, res, next) => {
-  console.log(
-    new Date().toISOString(),
-    req.method,
-    req.path,
-    "Origin:",
-    req.headers.origin || "no-origin"
-  );
-  next();
-});
+
 const PORT = process.env.PORT || 4000;
 // PRIVATE CV STORAGE - CLOUDFLARE R2
 const r2 = new S3Client({
