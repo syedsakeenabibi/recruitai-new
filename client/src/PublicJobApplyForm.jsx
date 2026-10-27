@@ -168,11 +168,24 @@ export default function PublicJobApplyForm({ job }) {
       body.append("resume", resume);
       body.append("consent", "true");
 
-      const response = await fetch(
-        `/api/public-jobs/${encodeURIComponent(job.id)}/apply`,
-        { method: "POST", body }
-      );
 
+
+      
+const PUBLIC_API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV
+    ? ""
+    : "https://recruitai-api-0s8o.onrender.com")
+).replace(/\/+$/, "");
+
+
+     const response = await fetch(
+  `${PUBLIC_API_BASE_URL}/api/public-jobs/${encodeURIComponent(job.id)}/apply`,
+  {
+    method: "POST",
+    body,
+  }
+);
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
