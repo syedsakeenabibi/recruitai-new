@@ -61,14 +61,17 @@ export default function PublicJobsAdmin() {
   }
 
   function parsePastedProfile() {
-    const raw = pastedProfile
-  .trim()
-  .replace(/\*\*/g, "")
-  .replace(/\\\s*$/gm, "");
-    if (!raw) {
-      setMessage("Paste a job profile first.");
-      return;
-    }
+  const raw = pastedProfile
+    .trim()
+    .replace(/\*\*/g, "")
+    .replace(/\\\s*$/gm, "");
+
+  if (!raw) {
+    setMessage("Paste a job profile first.");
+    return;
+  }
+
+  // Keep the remaining existing parser code below this line.
 
     const lines = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
     const labels = [
@@ -103,13 +106,24 @@ export default function PublicJobsAdmin() {
     const companyName = valueAfter(["company", "company name"]);
     const industry = valueAfter(["industry"]);
     const country = valueAfter(["country"]);
-    const salary = valueAfter(["salary", "pay range", "compensation", "pay"]);
+  const salary = valueAfter([
+  "salary / pay range",
+  "salary",
+  "pay range",
+  "compensation",
+  "pay"
+]);
     const employmentType = valueAfter(["employment type"]);
     const workplaceType = valueAfter(["workplace type", "work mode"]);
     const description = findSection(["job description", "description"]) || raw;
     const responsibilities = findSection(["responsibilities", "duties", "what you will do"]);
-    const requirements = findSection(["requirements", "qualifications", "skills", "what you bring"]);
-    const benefits = findSection(["benefits", "perks"]);
+const requirements = findSection([
+  "requirements / qualifications",
+  "requirements",
+  "qualifications",
+  "skills",
+  "what you bring"
+]);    const benefits = findSection(["benefits", "perks"]);
     const categoryText = (title + " " + industry + " " + raw).toLowerCase();
     const category = /chemist|machin|manufactur|warehouse|construction|nurse|clinical|technician|production|operator|logistics|sales|accountant|\bhr\b/.test(categoryText) ? "Non-IT" : "IT";
     const detectedIndustry = industry || (/construction/.test(categoryText) ? "Construction" : /manufactur|machin|production|operator/.test(categoryText) ? "Manufacturing" : /chemist|chemical/.test(categoryText) ? "Chemicals" : "");
@@ -389,7 +403,18 @@ async function saveJob(event) {
         <p>Paste the full job description. We will fill the fields we can detect; review everything before saving.</p>
         <textarea rows={7} value={pastedProfile} onChange={e => setPastedProfile(e.target.value)}
           placeholder={"Job Title: CNC Machinist\\nLocation: New York, NY\\nCompany: Example Company\\nJob Description: ...\\nResponsibilities\\n- ...\\nRequirements\\n- ..."}
-          style={inputStyle} />
+          style={{
+  ...inputStyle,
+  color: "#172033",
+  WebkitTextFillColor: "#172033",
+  backgroundColor: "#ffffff",
+  caretColor: "#172033",
+  opacity: 1,
+  fontFamily: "Arial, sans-serif",
+  fontSize: "15px",
+  lineHeight: 1.6,
+}}
+/>
 
     <button
   type="button"
