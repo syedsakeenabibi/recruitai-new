@@ -1,4 +1,4 @@
-const { ValidationError } = require("../bdm/bdm.validation");
+﻿const { ValidationError } = require("../bdm/bdm.validation");
 
 function asOptionalArray(value, fieldName) {
   if (value === undefined || value === null) return [];
@@ -140,7 +140,7 @@ if (!allowedSources.includes(source)) {
     location: optionalText(input, "location", 120),
     source,
     onlyRequestedBoards: input.onlyRequestedBoards === true,
-    pages: input.pages == null || input.pages === "" ? 1 : Math.max(1, Math.min(100, Math.floor(Number(input.pages) || 1))),
+    pages: input.pages == null || input.pages === "" ? 100 : Math.max(1, Math.min(100, Math.floor(Number(input.pages) || 100))),
     after,
     before,
     boards,

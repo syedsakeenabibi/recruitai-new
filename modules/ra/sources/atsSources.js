@@ -77,7 +77,7 @@ async function discoverAtsJobs(filters = {}) {
   const requestedPages = Number.parseInt(filters.pages, 10);
   const pages = Math.max(
     1,
-    Math.min(Number.isFinite(requestedPages) ? requestedPages : 20, 150)
+    Math.min(Number.isFinite(requestedPages) ? requestedPages : 100, 150)
   );
   const expanded = { ...filters, pages };
 
@@ -93,6 +93,14 @@ async function discoverAtsJobs(filters = {}) {
     discoverAtsJobsCore({ ...expanded, source: "BOTH" }),
     discoverJobApiSources({ ...expanded, source: "ALL" }),
   ]);
+
+  // Apply the same relevance and country filters to API-provider results.
+  results[1].opportunities = (results[1].opportunities || []).filter(
+    (job) =>
+      job &&
+      isInRequestedCountry(job.country, expanded.country) &&
+      matchesFilters(job, expanded)
+  );
 
   const opportunities = [];
   const seen = new Set();
@@ -1109,7 +1117,9 @@ function matchesFilters(job, filters) {
   if (category === "NON-IT" && job.category !== "Non-IT" && job.category !== "Both") return false;
   const title = normalizeSearchText(job.jobTitle);
   const text = normalizeSearchText(
-    `${job.jobTitle} ${job.description || ""} ${job.companyName || ""} ${job.location || ""} ${job.providerDepartment || ""}`
+    `${job.jobTitle || ""} ${job.description || ""} ${job.providerDepartment || ""} ${
+      Array.isArray(job.skills) ? job.skills.join(" ") : job.skills || ""
+    }`
   );
   const titleAndDepartment = normalizeSearchText(`${job.jobTitle} ${job.providerDepartment || ""}`);
   if (filters.title && !title.includes(normalizeSearchText(filters.title))) return false;
@@ -1118,7 +1128,7 @@ function matchesFilters(job, filters) {
   const campaignIndustries = Array.isArray(filters.industries) ? filters.industries : [];
   const campaignKeywords = Array.isArray(filters.keywords) ? filters.keywords : [];
   const roleMatch = campaignRoles.some((role) =>
-    campaignRoleMatches(title, role)
+    campaignRoleMatches(title, role) || relatedRoleMatches(title, text, role)
   );
   const industryMatch = campaignIndustries.some((industry) =>
     (includesSearchPhrase(titleAndDepartment, industry) || includesSearchPhrase(normalizeSearchText(job.industry), industry) || includesSearchPhrase(normalizeSearchText(industry), job.industry))
@@ -1127,7 +1137,7 @@ function matchesFilters(job, filters) {
     includesSearchPhrase(titleAndDepartment, keyword)
   );
   const keywordDescriptionMatch = campaignKeywords.some((keyword) =>
-    includesSearchPhrase(text, keyword)
+    includesSearchPhrase(text, keyword) || relatedRoleMatches(title, text, keyword)
   );
 
   const campaignLocations = Array.isArray(filters.locations) ? filters.locations : [];
@@ -1194,6 +1204,41 @@ function campaignRoleMatches(title, role) {
   return roleTokens.length > 0 && containsTokenSequence(titleTokens, roleTokens);
 }
 
+function relatedRoleMatches(title, text, requestedRole) {
+  const role = normalizeSearchText(requestedRole);
+  if (!["carpenter", "carpentry"].includes(role)) return false;
+
+  const directTitles = [
+    "finish carpenter", "rough carpenter", "journeyman carpenter",
+    "commercial carpenter", "residential carpenter", "construction carpenter",
+    "framing carpenter", "cabinet maker", "cabinetmaker", "millwork",
+    "woodworker", "woodworking", "formwork carpenter", "trim carpenter",
+    "maintenance carpenter", "carpentry technician"
+  ];
+
+  if (directTitles.some((term) => includesSearchPhrase(title, term))) return true;
+
+  const relatedTitles = [
+    "maintenance technician", "maintenance mechanic",
+    "millwright", "construction technician", "facilities technician",
+    "installation technician", "installer"
+  ];
+
+  if (!relatedTitles.some((term) => includesSearchPhrase(title, term))) return false;
+
+  const evidence = [
+    "finish carpentry", "rough carpentry", "wood framing",
+    "woodworking", "cabinet making", "cabinet installation",
+    "millwork installation", "trim installation", "door installation",
+    "window installation", "formwork", "wood fabrication",
+    "wood repair", "joinery", "framing", "carpentry"
+  ];
+
+  const matches = evidence.filter((term) => includesSearchPhrase(text, term));
+  return matches.length >= 2 ||
+    ["finish carpentry", "cabinet making", "wood framing", "millwork installation"]
+      .some((term) => includesSearchPhrase(text, term));
+}
 function containsTokenSequence(textTokens, queryTokens) {
   for (let start = 0; start <= textTokens.length - queryTokens.length; start += 1) {
     if (queryTokens.every((token, index) => textTokens[start + index] === token)) return true;
@@ -1219,7 +1264,8 @@ function describeCampaignMatch(job, filters) {
   );
   const reasons = [];
   const matchedRole = (filters.roles || []).find((role) =>
-    campaignRoleMatches(normalizeSearchText(job.jobTitle), role)
+    campaignRoleMatches(normalizeSearchText(job.jobTitle), role) ||
+    relatedRoleMatches(normalizeSearchText(job.jobTitle), detail, role)
   );
   if (matchedRole) reasons.push(`Role match: ${matchedRole}`);
   const matchedIndustry = (filters.industries || []).find((industry) =>
@@ -1245,7 +1291,7 @@ function campaignRelevanceScore(job, filters) {
   const roles = Array.isArray(filters.roles) ? filters.roles : [];
   const industries = Array.isArray(filters.industries) ? filters.industries : [];
   const keywords = Array.isArray(filters.keywords) ? filters.keywords : [];
-  let score = roles.some((role) => campaignRoleMatches(title, role)) ? 8 : 0;
+  let score = roles.some((role) => campaignRoleMatches(title, role) || relatedRoleMatches(title, fullText, role)) ? 8 : 0;
   if (industries.some((industry) => includesSearchPhrase(fullText, industry))) score += 4;
   if (keywords.some((keyword) => includesSearchPhrase(fullText, keyword))) score += 2;
   if (filters.locations?.some((location) => job.location && locationMatches(job.location, location))) score += 1;
@@ -1314,7 +1360,7 @@ function stripHtml(value) {
 
 function extractSalary(value) {
   const plain = stripHtml(value);
-  const match = plain.match(/(?:\$|Ãƒâ€šÃ‚Â£|USD\s?|GBP\s?)[\d,.]+(?:\s?[-ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“]\s?(?:\$|Ãƒâ€šÃ‚Â£|USD\s?|GBP\s?)[\d,.]+)?(?:\s?(?:per year|\/year|annually|per hour|\/hour))?/i);
+  const match = plain.match(/(?:\$|\u00A3|USD\s?|GBP\s?)[\d,.]+(?:\s?[-\u2013\u2014]\s?(?:\$|\u00A3|USD\s?|GBP\s?)[\d,.]+)?(?:\s?(?:per year|\/year|annually|per hour|\/hour))?/i);
   return match?.[0] || null;
 }
 
@@ -1326,7 +1372,7 @@ function formatAshbyCompensation(value) {
   const max = value.maxValue ?? value.max;
   const currency = value.currency || "";
   if (min == null && max == null) return null;
-  const range = min != null && max != null ? `${min}ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“${max}` : String(min ?? max);
+  const range = min != null && max != null ? `${min}\u2013${max}` : String(min ?? max);
   return `${currency} ${range}`.trim();
 }
 
@@ -1340,15 +1386,14 @@ function parseSalaryDetails(value) {
   const currencyMatch = text.match(/\b(USD|GBP|EUR|CAD|AUD)\b/i);
   const currency = currencyMatch
     ? currencyMatch[1].toUpperCase()
-    : text.includes("Ãƒâ€šÃ‚Â£") ? "GBP" : text.includes("$") ? "USD" : null;
+    : text.includes("\u00A3") ? "GBP" : text.includes("$") ? "USD" : null;
   const periodMatch = text.match(/\b(hourly|per hour|\/\s*hour|per annum|per year|annually|annual|\/\s*year|monthly|per month|\/\s*month|weekly|per week|\/\s*week|daily|per day|\/\s*day)\b/i);
   const periodText = periodMatch?.[1]?.toLowerCase() || "";
   const period = /hour/.test(periodText) ? "hour"
-    : /year|annum|annual/.test(periodText) ? "year"
-      : /month/.test(periodText) ? "month"
-        : /week/.test(periodText) ? "week"
-          : /day/.test(periodText) ? "day"
-            : null;
+    : /month/.test(periodText) ? "month"
+    : /week/.test(periodText) ? "week"
+    : /day/.test(periodText) ? "day"
+    : periodText ? "year" : null;
   return { currency, period };
 }
 
@@ -1376,11 +1421,11 @@ function inferIndustry(value) {
 
 function getCity(location) {
   if (!location) return null;
-  const firstLocation = String(location).split(/[ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢,]/)[0].trim();
+  const firstLocation = String(location).split(/[\u2022,]/)[0].trim();
   if (!firstLocation || /\b(remote|worldwide|global|anywhere|united states|united kingdom|usa|uk)\b/i.test(firstLocation)) {
     return null;
   }
-  return firstLocation.slice(0, 120);
+  return firstLocation || null;
 }
 
 function inputError(message) {

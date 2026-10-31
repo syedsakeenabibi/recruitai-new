@@ -134,8 +134,10 @@ const pagesLimit = Math.max(
 
     if (
       result.jobs.length === 0 ||
-      page * 20 >= totalAvailable
-    ) break;
+      (totalAvailable > 0 && page * 20 >= totalAvailable)
+    ) {
+      break;
+    }
 
     if (page < pagesLimit) {
       await new Promise(resolve => setTimeout(resolve, 500));
