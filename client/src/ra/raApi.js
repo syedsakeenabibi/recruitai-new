@@ -45,6 +45,9 @@ export const raApi = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  listEmployerContacts: (opportunityId) =>
+    request(`/opportunities/${encodeURIComponent(opportunityId)}/contacts`),
+
   listOpportunities: (campaignId) => {
     const query = campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : "";
     return request(`/opportunities${query}`);

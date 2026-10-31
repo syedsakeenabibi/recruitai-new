@@ -99,6 +99,7 @@ function validateLiveDiscoveryRequest(input = {}) {
   "JOOBLE",
   "ADZUNA",
   "USAJOBS",
+  "HIMALAYAS",
   "BOTH",
   "ALL",
 ];
@@ -227,8 +228,7 @@ function validateSearchUrlRequest(input = {}) {
     ? 60
     : Number(input.pages);
 
-  if (!Number.isInteger(pages) || pages < 1 || pages > 100) {
-    throw new ValidationError("pages must be an integer between 1 and 100.");
+  if (!Number.isInteger(pages) || pages < 1 || pages > 150) { throw new ValidationError("pages must be an integer between 1 and 150.");
   }
 
   let searchUrl = url;

@@ -12,7 +12,13 @@ const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAX_CONCURRENT_BOARD_REQUESTS = 8;
 const MAX_BOARDS_PER_PROVIDER = 150;
 const SMARTRECRUITERS_PAGE_SIZE = 100;
-const SMARTRECRUITERS_MAX_PAGES = 4;
+const SMARTRECRUITERS_MAX_PAGES = Math.max(
+  1,
+  Math.min(
+    Number.parseInt(process.env.RA_SMARTRECRUITERS_MAX_PAGES || "100", 10) || 100,
+    100
+  )
+);
 const DEFAULT_BOARDS = Object.freeze({
   GREENHOUSE: [
     "carvana", "shipmonk", "hellofresh", "samsara", "stripe", "cloudflare", "gitlab", "duolingo", "datadog", "figma", "coinbase",
@@ -65,7 +71,47 @@ async function mapWithConcurrency(items, limit, mapper) {
   return results;
 }
 
+
 async function discoverAtsJobs(filters = {}) {
+  const source = String(filters.source || "BOTH").toUpperCase();
+  const requestedPages = Number.parseInt(filters.pages, 10);
+  const pages = Math.max(
+    1,
+    Math.min(Number.isFinite(requestedPages) ? requestedPages : 20, 150)
+  );
+  const expanded = { ...filters, pages };
+
+  if (API_JOB_PROVIDERS.includes(source)) {
+    return discoverJobApiSources({ ...expanded, source });
+  }
+
+  if (source !== "ALL" && source !== "BOTH") {
+    return discoverAtsJobsCore(expanded);
+  }
+
+  const results = await Promise.all([
+    discoverAtsJobsCore({ ...expanded, source: "BOTH" }),
+    discoverJobApiSources({ ...expanded, source: "ALL" }),
+  ]);
+
+  const opportunities = [];
+  const seen = new Set();
+
+  for (const job of results.flatMap((result) => result.opportunities || [])) {
+    if (!job) continue;
+    const keys = duplicateKeys(job);
+    if (keys.some((key) => seen.has(key))) continue;
+    keys.forEach((key) => seen.add(key));
+    opportunities.push(job);
+  }
+
+  return {
+    opportunities,
+    sourceStatus: results.flatMap((result) => result.sourceStatus || []),
+  };
+}
+
+async function discoverAtsJobsCore(filters = {}) {
 
   const requestedSource = String(filters.source || "").toUpperCase();
 
@@ -157,10 +203,18 @@ if (includeW3Global) {
     const searchUrl = new URL("https://www.w3global.com/search-jobs");
     searchUrl.searchParams.set("keyword", keyword);
 
-    const result = await getW3GlobalJobs(
-      searchUrl.href,
-      Number(filters.pages) || 1
-    );
+  const requestedPages = Number.parseInt(filters.pages, 10);
+const pagesToFetch = Math.max(
+  1,
+  Math.min(
+    Number.isFinite(requestedPages) && requestedPages > 0
+      ? requestedPages
+      : 10,
+    150
+  )
+);
+
+const result = await getW3GlobalJobs(searchUrl.href, pagesToFetch);
 
     const refreshedAt = new Date().toISOString();
 
@@ -1234,14 +1288,23 @@ function isInRequestedCountry(country, requested) {
 }
 
 function duplicateKeys(job) {
-  const url = normalizeUrl(job.sourceUrl);
   const keys = [];
-  if (url) keys.push(`url:${url.toLowerCase()}`);
-  if (job.companyName && job.jobTitle && job.location) {
-    const identity = [job.companyName, job.jobTitle, job.location]
-      .map((value) => String(value).trim().toLowerCase().replace(/\s+/g, " "));
-    keys.push(`job:${identity.join("|")}`);
+  const url = normalizeUrl(job.sourceUrl);
+
+  if (url) {
+    keys.push(`url:${url.toLowerCase()}`);
   }
+
+  // Stable provider IDs identify the same listing across sources only
+  // when the provider itself is the same.
+  if (job.sourceProvider && job.externalId) {
+    keys.push(
+      `provider:${String(job.sourceProvider).toUpperCase()}:${String(job.externalId).trim()}`
+    );
+  }
+
+  // Intentionally do not deduplicate by company + title + location.
+  // A company can have multiple genuine openings with identical details.
   return keys;
 }
 
@@ -1251,7 +1314,7 @@ function stripHtml(value) {
 
 function extractSalary(value) {
   const plain = stripHtml(value);
-  const match = plain.match(/(?:\$|Ã‚Â£|USD\s?|GBP\s?)[\d,.]+(?:\s?[-Ã¢â‚¬â€œ]\s?(?:\$|Ã‚Â£|USD\s?|GBP\s?)[\d,.]+)?(?:\s?(?:per year|\/year|annually|per hour|\/hour))?/i);
+  const match = plain.match(/(?:\$|Ãƒâ€šÃ‚Â£|USD\s?|GBP\s?)[\d,.]+(?:\s?[-ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“]\s?(?:\$|Ãƒâ€šÃ‚Â£|USD\s?|GBP\s?)[\d,.]+)?(?:\s?(?:per year|\/year|annually|per hour|\/hour))?/i);
   return match?.[0] || null;
 }
 
@@ -1263,7 +1326,7 @@ function formatAshbyCompensation(value) {
   const max = value.maxValue ?? value.max;
   const currency = value.currency || "";
   if (min == null && max == null) return null;
-  const range = min != null && max != null ? `${min}Ã¢â‚¬â€œ${max}` : String(min ?? max);
+  const range = min != null && max != null ? `${min}ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“${max}` : String(min ?? max);
   return `${currency} ${range}`.trim();
 }
 
@@ -1277,7 +1340,7 @@ function parseSalaryDetails(value) {
   const currencyMatch = text.match(/\b(USD|GBP|EUR|CAD|AUD)\b/i);
   const currency = currencyMatch
     ? currencyMatch[1].toUpperCase()
-    : text.includes("Ã‚Â£") ? "GBP" : text.includes("$") ? "USD" : null;
+    : text.includes("Ãƒâ€šÃ‚Â£") ? "GBP" : text.includes("$") ? "USD" : null;
   const periodMatch = text.match(/\b(hourly|per hour|\/\s*hour|per annum|per year|annually|annual|\/\s*year|monthly|per month|\/\s*month|weekly|per week|\/\s*week|daily|per day|\/\s*day)\b/i);
   const periodText = periodMatch?.[1]?.toLowerCase() || "";
   const period = /hour/.test(periodText) ? "hour"
@@ -1313,7 +1376,7 @@ function inferIndustry(value) {
 
 function getCity(location) {
   if (!location) return null;
-  const firstLocation = String(location).split(/[Ã¢â‚¬Â¢,]/)[0].trim();
+  const firstLocation = String(location).split(/[ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢,]/)[0].trim();
   if (!firstLocation || /\b(remote|worldwide|global|anywhere|united states|united kingdom|usa|uk)\b/i.test(firstLocation)) {
     return null;
   }
@@ -1338,3 +1401,5 @@ module.exports = {
   classifyCategory,
   matchesFilters,
 };
+
+

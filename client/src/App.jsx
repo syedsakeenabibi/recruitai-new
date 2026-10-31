@@ -30,6 +30,7 @@ const ROUTE_TO_PAGE = {
   "/admin/candidates": "admin",
   "/admin/enquiries": "admin",
   "/admin/recruitment": "admin",
+  "/admin/employer-intelligence": "admin",
   "/recruiter": "recruiter",
   "/bdm": "bdm",
   "/ra": "ra",
@@ -61,6 +62,7 @@ function sectionFromLocation(pathname = window.location.pathname) {
     "/admin/candidates": "candidates",
     "/admin/enquiries": "enquiries",
     "/admin/recruitment": "recruitment",
+    "/admin/employer-intelligence": "employer-intelligence",
     "/bdm": "bdm",
     "/ra": "ra",
   };
@@ -86,7 +88,9 @@ function App() {
   const handleDashboardSectionChange = useCallback((section) => {
     const route = section === "bdm" || section === "ra"
       ? `/${section}`
-      : section === "candidates" || section === "enquiries" || section === "recruitment"
+      : section === "employer-intelligence"
+        ? "/admin/employer-intelligence"
+        : section === "candidates" || section === "enquiries" || section === "recruitment"
         ? `/admin/${section}`
         : "/admin";
     if (window.location.pathname !== route) window.history.pushState({}, "", route);

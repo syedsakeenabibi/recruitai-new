@@ -60,7 +60,8 @@ export default function PublicJobsAdmin() {
     setPastedProfile("");
   }
 
-  function parsePastedProfile() {
+ 
+function parsePastedProfile() {
   const raw = pastedProfile
     .trim()
     .replace(/\*\*/g, "")
@@ -71,81 +72,195 @@ export default function PublicJobsAdmin() {
     return;
   }
 
-  // Keep the remaining existing parser code below this line.
+  const lines = raw.split(/\r?\n/).map(line => line.trim());
 
-    const lines = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-    const labels = [
-      "job title", "title", "location", "job location", "company", "company name",
-      "category", "industry", "country", "salary", "pay range", "compensation",
-      "employment type", "work mode", "workplace type", "responsibilities", "duties",
-      "what you will do", "requirements", "qualifications", "skills", "what you bring",
-      "benefits", "perks", "job description", "description"
-    ];
-    const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const sectionHeader = new RegExp("^\\s*(?:[•*#-]\\s*)?(?:" + labels.map(escapeRegex).join("|") + ")\\s*:?\\s*$", "i");
-    const findSection = (sectionLabels) => {
-      const sectionRegex = new RegExp("^\\s*(?:[•*#-]\\s*)?(?:" + sectionLabels.map(escapeRegex).join("|") + ")\\s*:?\\s*$", "i");
-      const index = lines.findIndex(line => sectionRegex.test(line));
-      if (index < 0) return "";
-      const values = [];
-      for (let i = index + 1; i < lines.length; i++) {
-        if (sectionHeader.test(lines[i])) break;
-        values.push(lines[i].replace(/^[-•*]\s*/, ""));
-      }
-      return values.join("\n").trim();
-    };
-    const valueAfter = (names) => {
-      const regex = new RegExp("^\\s*(?:" + names.map(escapeRegex).join("|") + ")\\s*:\\s*(.*)$", "i");
-      const line = lines.find(item => regex.test(item));
-      return line ? line.match(regex)?.[1]?.trim() || "" : "";
-    };
+  const normalize = value =>
+    value.replace(/^#+\s*/, "").replace(/:$/, "").trim().toLowerCase();
 
-    const firstLine = lines.find(line => !/^[\w\s-]+\s*:\s*/.test(line) && line.length < 160) || lines[0] || "";
-    const title = valueAfter(["job title", "title"]) || firstLine.replace(/^#+\s*/, "");
-    const location = valueAfter(["location", "job location"]);
-    const companyName = valueAfter(["company", "company name"]);
-    const industry = valueAfter(["industry"]);
-    const country = valueAfter(["country"]);
-  const salary = valueAfter([
-  "salary / pay range",
-  "salary",
-  "pay range",
-  "compensation",
-  "pay"
-]);
-    const employmentType = valueAfter(["employment type"]);
-    const workplaceType = valueAfter(["workplace type", "work mode"]);
-    const description = findSection(["job description", "description"]) || raw;
-    const responsibilities = findSection(["responsibilities", "duties", "what you will do"]);
-const requirements = findSection([
-  "requirements / qualifications",
-  "requirements",
-  "qualifications",
-  "skills",
-  "what you bring"
-]);    const benefits = findSection(["benefits", "perks"]);
-    const categoryText = (title + " " + industry + " " + raw).toLowerCase();
-    const category = /chemist|machin|manufactur|warehouse|construction|nurse|clinical|technician|production|operator|logistics|sales|accountant|\bhr\b/.test(categoryText) ? "Non-IT" : "IT";
-    const detectedIndustry = industry || (/construction/.test(categoryText) ? "Construction" : /manufactur|machin|production|operator/.test(categoryText) ? "Manufacturing" : /chemist|chemical/.test(categoryText) ? "Chemicals" : "");
+  const sectionNames = {
+    description: ["job description", "description"],
+    responsibilities: [
+      "responsibilities",
+      "key responsibilities",
+      "duties",
+      "what you will do"
+    ],
+    requirements: [
+      "requirements / qualifications",
+      "requirements and qualifications",
+      "requirements",
+      "qualifications",
+      "skills",
+      "what you bring"
+    ],
+    benefits: ["benefits", "benefits and perks", "perks"],
+    application: [
+      "how to apply",
+      "application instructions",
+      "application process",
+      "apply now"
+    ]
+  };
 
-    setForm(current => ({
-      ...current,
-      title: title.replace(/^(job title|title)\s*:\s*/i, "").trim(),
-      companyName: companyName || current.companyName || "Fusion Staffing Solutions",
-      category,
-      industry: detectedIndustry,
-      country,
-      location,
-      salary,
-      employmentType: employmentType || current.employmentType,
-      workplaceType: workplaceType || current.workplaceType,
-      description,
-      responsibilities,
-      requirements,
-      benefits
-    }));
-    setMessage("Profile parsed. Review and correct the fields before publishing.");
+  const metadataNames = [
+    "job title", "title",
+    "company name", "company",
+    "category", "industry", "country",
+    "location", "job location",
+    "employment type",
+    "work mode", "workplace type",
+    "salary / pay range", "salary/pay range",
+    "salary", "pay range", "compensation", "pay"
+  ];
+
+  const allSectionNames = Object.values(sectionNames).flat();
+
+  function getHeading(line) {
+    const cleaned = normalize(line);
+    return allSectionNames.find(name => cleaned === name) || "";
   }
+
+  function getValue(names) {
+    const wanted = names.map(name => name.toLowerCase());
+    for (const line of lines) {
+      const match = line.match(/^([^:]+):\s*(.*)$/);
+      if (match && wanted.includes(match[1].trim().toLowerCase())) {
+        return match[2].trim();
+      }
+    }
+    return "";
+  }
+
+  function getSection(names) {
+  const start = lines.findIndex(
+    line => names.includes(getHeading(line))
+  );
+
+  if (start === -1) return "";
+
+  const result = [];
+
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i];
+    const heading = getHeading(line);
+
+    // Stop at every recognized section heading.
+    if (heading) break;
+
+    // Stop at metadata fields such as Salary or Location.
+    const metadataMatch = line.match(/^([^:]+):\s*(.*)$/);
+    if (
+      metadataMatch &&
+      metadataNames.includes(metadataMatch[1].trim().toLowerCase())
+    ) {
+      break;
+    }
+
+    // Ignore blank lines and Markdown separators.
+    if (!line.trim() || /^[-*_]{3,}$/.test(line.trim())) {
+      continue;
+    }
+
+    // Remove bullet symbols without changing the actual text.
+    result.push(line.replace(/^\s*(?:[-*•✓]|\d+[.)])\s*/, ""));
+  }
+
+  return result.join("\n").trim();
+}
+
+  const title = getValue(["Job Title", "Title"]);
+  const companyName = getValue(["Company Name", "Company"]);
+  const categoryInput = getValue(["Category"]);
+  const industry = getValue(["Industry"]);
+  const country = getValue(["Country"]);
+  const location = getValue(["Location", "Job Location"]);
+  const salary = getValue([
+    "Salary / Pay Range",
+    "Salary/Pay Range",
+    "Salary",
+    "Pay Range",
+    "Compensation",
+    "Pay"
+  ]);
+  const employmentType = getValue(["Employment Type"]);
+  const workplaceType = getValue(["Work Mode", "Workplace Type"]);
+
+  const description = getSection(sectionNames.description);
+  const responsibilities = getSection(sectionNames.responsibilities);
+  const requirements = getSection(sectionNames.requirements);
+  const benefits = getSection(sectionNames.benefits);
+  const application = getSection(sectionNames.application);
+
+  const categoryText = [
+    title,
+    industry,
+    description,
+    responsibilities,
+    requirements
+  ].join(" ").toLowerCase();
+
+  const category = categoryInput
+    ? (/^non[\s-]?it$/i.test(categoryInput) ? "Non-IT" : "IT")
+    : (
+        /machin|manufactur|warehouse|construction|nurse|clinical|technician|production|operator|logistics|sales|accountant|\bhr\b|chemist/.test(categoryText)
+          ? "Non-IT"
+          : "IT"
+      );
+
+const normalizedIndustry = industry.trim().toLowerCase();
+
+const detectedIndustry = industry.trim()
+  ? industry.trim()
+  : /construction|painter|drywall|plaster|bricklayer|mason|roofer|concrete|steel fixer|scaffolder|carpenter|plumber|pipefitter/.test(
+      (title + " " + description + " " + responsibilities).toLowerCase()
+    )
+    ? "Construction"
+    : /fabricator|manufactur|machin|production|operator/.test(
+        (title + " " + description + " " + responsibilities).toLowerCase()
+      )
+      ? "Manufacturing"
+      : /chemist|chemical/.test(
+          (title + " " + description).toLowerCase()
+        )
+        ? "Chemicals"
+        : "";
+
+  // Keep application instructions in Job Description because
+  // the form does not have a separate How to Apply field.
+  const finalDescription = [
+    description,
+    application ? `How to Apply:\n${application}` : ""
+  ].filter(Boolean).join("\n\n");
+
+  if (!title || !location || !finalDescription) {
+    setMessage(
+      "Please include Job Title, Location, and Job Description before parsing."
+    );
+    return;
+  }
+
+  setForm(current => ({
+    ...current,
+    title,
+    companyName: companyName || current.companyName || "Fusion Staffing Solutions",
+    category,
+    industry: detectedIndustry,
+    country,
+    location,
+    salary,
+    employmentType: employmentType || current.employmentType,
+    workplaceType: workplaceType || current.workplaceType,
+    description: finalDescription,
+    responsibilities,
+    requirements,
+    benefits
+  }));
+
+  setMessage(
+    "Profile parsed successfully. Review all fields before saving or publishing."
+  );
+}
+
 
 async function savePastedAndPublish() {
   const raw = pastedProfile.trim();

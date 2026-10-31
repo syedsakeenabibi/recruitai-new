@@ -155,22 +155,50 @@ async function searchJooble(filters) {
       ? "https://uk.jooble.org"
       : "https://jooble.org";
 
-  const data = await getJson(`${host}/api/${encodeURIComponent(key)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      keywords: getKeywords(filters),
-      location: filters.location || country,
-      page: "1",
-      ResultOnPage: 50,
-    }),
-  });
+  const requestedPages = Number.parseInt(
+    process.env.RA_MAX_PROVIDER_PAGES || filters.pages,
+    10
+  );
+  const maxPages = Number.isFinite(requestedPages)
+    ? Math.max(1, Math.min(requestedPages, 100))
+    : 100;
 
-  if (!Array.isArray(data.jobs)) {
-    throw new Error("Jooble returned an unexpected response");
+  const allJobs = [];
+  const seen = new Set();
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const data = await getJson(`${host}/api/${encodeURIComponent(key)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        keywords: getKeywords(filters),
+        location: filters.location || country,
+        page: String(page),
+        ResultOnPage: 50,
+      }),
+    });
+
+    if (!Array.isArray(data.jobs)) {
+      throw new Error(`Jooble returned an unexpected response on page ${page}`);
+    }
+
+    let added = 0;
+
+    for (const job of data.jobs) {
+      const id = String(job.id || job.link || "");
+      if (!id || seen.has(id)) continue;
+
+      seen.add(id);
+      allJobs.push(job);
+      added += 1;
+    }
+
+    if (data.jobs.length < 50 || added === 0) {
+      break;
+    }
   }
 
-  return data.jobs
+  return allJobs
     .map((job) => normalizeJob("JOOBLE", job, filters))
     .filter(Boolean);
 }
@@ -187,11 +215,13 @@ async function searchAdzuna(filters) {
   const country = getCountry(filters);
   const countryCode = country === "UK" ? "gb" : "us";
 
-  // Default to 2 pages (up to 100 records); allow callers to request more.
-  const requestedPages = Number.parseInt(filters.pages, 10);
+  const requestedPages = Number.parseInt(
+    process.env.RA_MAX_PROVIDER_PAGES || filters.pages,
+    10
+  );
   const maxPages = Number.isFinite(requestedPages)
-    ? Math.max(1, Math.min(requestedPages, 10))
-    : 2;
+    ? Math.max(1, Math.min(requestedPages, 100))
+    : 100;
 
   const allJobs = [];
   const seen = new Set();
@@ -213,25 +243,23 @@ async function searchAdzuna(filters) {
     const data = await getJson(url.href);
 
     if (!Array.isArray(data.results)) {
-      throw new Error(`Adzuna returned an unexpected response on page ${page}`);
+      throw new Error(
+        `Adzuna returned an unexpected response on page ${page}`
+      );
     }
 
-    if (data.results.length === 0) {
-      break;
-    }
+    let added = 0;
 
     for (const job of data.results) {
-      const key = String(job.id || job.redirect_url || "");
+      const id = String(job.id || job.redirect_url || "");
+      if (!id || seen.has(id)) continue;
 
-      if (!key || seen.has(key)) {
-        continue;
-      }
-
-      seen.add(key);
+      seen.add(id);
       allJobs.push(job);
+      added += 1;
     }
 
-    if (data.results.length < 50) {
+    if (data.results.length < 50 || added === 0) {
       break;
     }
   }
@@ -247,36 +275,57 @@ async function searchUsajobs(filters) {
   const email = process.env.USAJOBS_USER_AGENT;
 
   if (!key || !email) {
-    throw new Error(
-      "USAJOBS_API_KEY and USAJOBS_USER_AGENT are required"
-    );
+    throw new Error("USAJOBS_API_KEY and USAJOBS_USER_AGENT are required");
   }
 
-  const url = new URL("https://data.usajobs.gov/api/search");
+  const maxPages = Math.max(
+    1,
+    Math.min(Number.parseInt(process.env.RA_MAX_PROVIDER_PAGES, 10) || 100, 1000)
+  );
 
-  url.search = new URLSearchParams({
-    Keyword: getKeywords(filters),
-    ResultsPerPage: "50",
-    ...(filters.location
-      ? { LocationName: filters.location }
-      : {}),
-  }).toString();
+  const allJobs = [];
+  const seen = new Set();
 
-  const data = await getJson(url.href, {
-    headers: {
-      Host: "data.usajobs.gov",
-      "User-Agent": email,
-      "Authorization-Key": key,
-    },
-  });
+  for (let page = 1; page <= maxPages; page += 1) {
+    const url = new URL("https://data.usajobs.gov/api/search");
 
-  const jobs = data.SearchResult?.SearchResultItems;
+    url.search = new URLSearchParams({
+      Keyword: getKeywords(filters),
+      Page: String(page),
+      ResultsPerPage: "50",
+      ...(filters.location ? { LocationName: filters.location } : {}),
+    }).toString();
 
-  if (!Array.isArray(jobs)) {
-    throw new Error("USAJOBS returned an unexpected response");
+    const data = await getJson(url.href, {
+      headers: {
+        Host: "data.usajobs.gov",
+        "User-Agent": email,
+        "Authorization-Key": key,
+      },
+    });
+
+    const jobs = data.SearchResult?.SearchResultItems;
+
+    if (!Array.isArray(jobs)) {
+      throw new Error(`USAJOBS returned an unexpected response on page ${page}`);
+    }
+
+    let added = 0;
+
+    for (const job of jobs) {
+      const descriptor = job.MatchedObjectDescriptor || {};
+      const id = String(job.MatchedObjectId || descriptor.PositionID || "");
+      if (!id || seen.has(id)) continue;
+
+      seen.add(id);
+      allJobs.push(job);
+      added += 1;
+    }
+
+    if (jobs.length < 50 || added === 0) break;
   }
 
-  return jobs
+  return allJobs
     .map((job) => normalizeJob("USAJOBS", job, filters))
     .filter(Boolean);
 }
@@ -293,22 +342,30 @@ async function searchHimalayas(filters = {}) {
     url.searchParams.set("q", keywords);
   }
 
-  const requestedPages = Number.parseInt(filters.pages, 10);
-  const pages = Number.isFinite(requestedPages)
-    ? Math.max(1, Math.min(requestedPages, 5))
-    : 1;
+  // Fetch successive pages automatically, with a safety ceiling.
+  const requestedPages = Number.parseInt(
+    process.env.RA_MAX_PROVIDER_PAGES || filters.pages,
+    10
+  );
+  const maxPages = Number.isFinite(requestedPages)
+    ? Math.max(1, Math.min(requestedPages, 1000))
+    : 100;
 
   const allJobs = [];
   const seen = new Set();
 
-  for (let page = 1; page <= pages; page += 1) {
+  for (let page = 1; page <= maxPages; page += 1) {
     url.searchParams.set("page", String(page));
 
     const data = await getJson(url.href);
 
     if (!Array.isArray(data.jobs)) {
-      throw new Error("Himalayas returned an unexpected response");
+      throw new Error(
+        `Himalayas returned an unexpected response on page ${page}`
+      );
     }
+
+    let added = 0;
 
     for (const job of data.jobs) {
       const id = String(job.guid || job.applicationLink || "");
@@ -316,9 +373,13 @@ async function searchHimalayas(filters = {}) {
 
       seen.add(id);
       allJobs.push(job);
+      added += 1;
     }
 
-    if (data.jobs.length === 0) break;
+    // Stop when there are no more results or no new unique jobs.
+    if (data.jobs.length === 0 || added === 0) {
+      break;
+    }
   }
 
   return allJobs

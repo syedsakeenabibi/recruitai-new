@@ -1088,3 +1088,65 @@
     font-size: 22px;
   }
 }
+
+/* Final consistent layout for public job details */
+.job-details-page .job-heading-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  margin-top: 14px;
+}
+
+.job-details-page .job-heading-main {
+  width: 100%;
+  min-width: 0;
+}
+
+.job-details-page .job-heading-row h1 {
+  margin: 0;
+  text-align: left;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.job-details-page .job-company {
+  margin: 8px 0 0;
+  font-size: 17px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.job-details-page .job-salary {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  margin-top: 2px;
+  text-align: left;
+}
+
+.job-details-page .job-salary strong {
+  display: block;
+  font-size: 20px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.job-details-page .job-salary span {
+  display: block;
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.job-details-page .job-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin-top: 22px;
+}
+

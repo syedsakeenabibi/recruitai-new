@@ -1,4 +1,4 @@
-﻿"use strict";
+"use strict";
 
 const ENDPOINT =
   "https://tpapigw.talentpathway.com/v1/job-post-svc/w3global/clientExtJob/_search";
@@ -17,10 +17,20 @@ function normalize(job) {
   const a = job.address?.[0] || {};
   const salary = job.salary || {};
 
+  const employer =
+    job.companyName ||
+    job.company?.name ||
+    job.clientName ||
+    job.employerName ||
+    job.hiringCompany ||
+    job.organizationName ||
+    job.company?.companyName ||
+    "W3Global";
+
   return {
     externalId: job.id || job.jobId,
     jobTitle: job.jobTitle || "",
-    companyName: "W3Global",
+    companyName: text(employer),
     location: [a.city, a.state, a.country].filter(Boolean).join(", "),
     employmentType: Array.isArray(job.employmentType)
       ? job.employmentType.join(", ")
@@ -38,6 +48,7 @@ function normalize(job) {
     remote: job.remote || ""
   };
 }
+
 
 async function fetchPage(keyword, page) {
   const form = new FormData();
@@ -89,8 +100,18 @@ const requestedPages = Number.isFinite(Number(maxPages))
   ? Math.floor(Number(maxPages))
   : 10;
 
-const pagesLimit = Math.max(1, Math.min(100, requestedPages));
-  const found = new Map();
+const configuredMaxPages = Math.max(
+  1,
+  Math.min(
+    150,
+    Number.parseInt(process.env.RA_W3GLOBAL_MAX_PAGES || "150", 10) || 150
+  )
+);
+
+const pagesLimit = Math.max(
+  1,
+  Math.min(configuredMaxPages, requestedPages)
+);  const found = new Map();
   let totalAvailable = 0;
   let pagesFetched = 0;
 

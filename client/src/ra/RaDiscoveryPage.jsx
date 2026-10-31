@@ -137,8 +137,60 @@ export default function RaDiscoveryPage({ campaigns = [], campaign = null, initi
   useEffect(() => {
     let active = true;
     loadOpportunities()
-      .then((items) => {
-        if (active) setOpportunities(items);
+      .then(async (items) => {
+        if (active) {
+          setOpportunities(items);
+
+          const savedContactEntries = await Promise.all(
+            items.map(async (opportunity) => {
+              try {
+                const rawData = typeof opportunity.rawData === "string"
+                  ? JSON.parse(opportunity.rawData || "{}")
+                  : opportunity.rawData || {};
+
+                const provider = String(rawData.sourceProvider || "").toUpperCase();
+                const board = rawData.sourceBoard;
+                const externalId = rawData.sourceProviderJobId || opportunity.externalId;
+
+                if (!provider || !board || !externalId) return null;
+
+                const result = await raApi.listEmployerContacts(opportunity.id);
+                const contacts = result.contacts || [];
+
+                if (!contacts.length) return null;
+
+                const key = `${provider}:${board}:${externalId}`;
+
+                return [key, {
+                  opportunityId: opportunity.id,
+                  employer: opportunity.companyName,
+                  lookupStatus: "CONTACTS_FOUND",
+                  sourceStatus: "SAVED",
+                  contacts,
+                  channels: [],
+                  message: "Previously saved employer contacts."
+                }];
+              } catch (contactLoadError) {
+                console.warn(
+                  "Could not load saved contacts for opportunity:",
+                  opportunity.id,
+                  contactLoadError.message
+                );
+                return null;
+              }
+            })
+          );
+
+          if (active) {
+            const savedResults = Object.fromEntries(
+              savedContactEntries.filter(Boolean)
+            );
+            setContactResults((current) => ({
+              ...current,
+              ...savedResults
+            }));
+          }
+        }
       })
       .catch((loadError) => {
         if (active) {
@@ -179,7 +231,7 @@ export default function RaDiscoveryPage({ campaigns = [], campaign = null, initi
         after: filters.after || undefined,
         before: filters.before || undefined,
         pages: filters.source === "W3GLOBAL"
-  ? Math.max(1, Math.min(100, Number(filters.pages) || 10))
+  ? Math.max(1, Math.min(150, Number(filters.pages) || 10))
   : undefined,
       });
       setSourceStatus(result.sourceStatus || "UNAVAILABLE");
@@ -606,13 +658,13 @@ export default function RaDiscoveryPage({ campaigns = [], campaign = null, initi
     <input
       type="number"
       min="1"
-      max="100"
+      max="150"
       value={filters.pages}
       onChange={(event) => {
         const value = event.target.value;
         updateFilter(
           "pages",
-          value === "" ? "" : String(Math.max(1, Math.min(100, Number(value))))
+          value === "" ? "" : String(Math.max(1, Math.min(150, Number(value))))
         );
       }}
     />

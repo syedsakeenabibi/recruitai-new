@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { bdmApi } from "../bdm/bdmApi";
 import RaDiscoveryPage from "./RaDiscoveryPage";
+import SavedJobResearchPage from "./SavedJobResearchPage";
 import { raApi } from "./raApi";
 import "./ra.css";
 
@@ -55,7 +56,7 @@ export default function RaModule({ onBack, initialCampaignId = "" }) {
       <header className="ra-header">
         <div>
           <span className="ra-eyebrow">FUSION STAFFING SOLUTIONS</span>
-          <h1>{page === "sources" ? "Research Sources" : page === "opportunities" ? "RA Opportunities" : "Research / RA"}</h1>
+          <h1>{page === "sources" ? "Research Sources" : page === "saved-research" ? "Saved Job Research" : page === "opportunities" ? "RA Opportunities" : "Research / RA"}</h1>
         </div>
         {onBack && (
           <button className="ra-button ra-button-secondary" onClick={onBack}>
@@ -74,8 +75,11 @@ export default function RaModule({ onBack, initialCampaignId = "" }) {
             <button className={page === "discovery" ? "is-active" : ""} onClick={() => setPage("discovery")}>Discovery</button>
             <button className={page === "opportunities" ? "is-active" : ""} onClick={() => setPage("opportunities")}>Opportunities</button>
             <button className={page === "sources" ? "is-active" : ""} onClick={() => setPage("sources")}>Sources</button>
+            <button className={page === "saved-research" ? "is-active" : ""} onClick={() => setPage("saved-research")}>Saved Job Research</button>
           </nav>
-          {page === "sources" ? (
+          {page === "saved-research" ? (
+            <SavedJobResearchPage />
+          ) : page === "sources" ? (
             <div className="ra-panel ra-sources-panel">
               {error && <p className="ra-error" role="alert">{error}</p>}
               <div>
@@ -128,3 +132,4 @@ export default function RaModule({ onBack, initialCampaignId = "" }) {
     </section>
   );
 }
+

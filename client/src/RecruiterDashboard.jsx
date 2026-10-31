@@ -4,6 +4,7 @@ import PublicJobsAdmin from "./PublicJobsAdmin";
 import PublicJobApplicationsAdmin from "./PublicJobApplicationsAdmin";
 import RaModule from "./ra/RaModule";
 import RecruitmentWorkspace from "./recruitment/RecruitmentWorkspace";
+import EmployerIntelligence from "./EmployerIntelligence";
 import "./RecruiterDashboard.css";
 
 

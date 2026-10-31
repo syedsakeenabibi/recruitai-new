@@ -64,6 +64,18 @@ function createRaController({ getDb }) {
       res.status(result.duplicate ? 200 : 201).json(result);
     }),
 
+    listEmployerContacts: handle(async (req, res, service) => {
+      const opportunityId = String(req.params.id || "").trim();
+      if (!opportunityId) {
+        return res.status(400).json({
+          success: false,
+          error: "Opportunity ID is required."
+        });
+      }
+      const contacts = await service.listEmployerContacts(opportunityId);
+      res.json({ success: true, contacts });
+    }),
+
     findHiringContacts: handle(async (req, res, service) => {
       const payload = validateFindHiringContactsRequest(req.body || {}, req.params.id);
       res.json(await service.findHiringContacts(payload.opportunityId));

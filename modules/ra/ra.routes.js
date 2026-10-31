@@ -1,5 +1,6 @@
-const express = require("express");
+﻿const express = require("express");
 const { createRaController } = require("./ra.controller");
+const { createSavedSearchRouter } = require("./savedSearch.routes");
 
 function createRaRouter({ getDb, requireAdmin, requireRole, logger = console } = {}) {
   if (typeof requireAdmin !== "function") {
@@ -12,6 +13,7 @@ function createRaRouter({ getDb, requireAdmin, requireRole, logger = console } =
 
   router.use(requireAdmin);
   if (requireRole) router.use(requireRole);
+  router.use('/saved-searches', createSavedSearchRouter({ getDb }));
   router.get("/sources", controller.listSources);
   router.post("/discover", controller.discover);
   const rateLimitLiveSource = (handler) => (req, res, next) => {
@@ -29,6 +31,7 @@ function createRaRouter({ getDb, requireAdmin, requireRole, logger = console } =
   router.post("/search-url", rateLimitLiveSource(controller.searchUrl));
   router.post("/save-live", controller.saveLive);
   router.post("/opportunities/:id/find-contacts", rateLimitLiveSource(controller.findHiringContacts));
+  router.get("/opportunities/:id/contacts", controller.listEmployerContacts);
   router.get("/opportunities", controller.listOpportunities);
   router.post("/import-url", controller.importManualUrl);
 
@@ -48,3 +51,4 @@ function createRaRouter({ getDb, requireAdmin, requireRole, logger = console } =
 }
 
 module.exports = { createRaRouter };
+
